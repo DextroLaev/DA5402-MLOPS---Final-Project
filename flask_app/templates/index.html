@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FaceID · Recognition</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#f5f6f8;--surface:#fff;--border:#e4e7ec;--text:#1a1d23;--muted:#6b7280;
+      --green:#16a34a;--green-bg:#f0fdf4;--green-bd:#bbf7d0;
+      --red:#dc2626;--red-bg:#fef2f2;--red-bd:#fecaca;
+      --amber:#d97706;--amber-bg:#fffbeb;--amber-bd:#fde68a;
+      --blue:#2563eb;--radius:12px;
+    }
+    html,body{height:100%;background:var(--bg);font-family:'Inter',sans-serif;color:var(--text);}
+    .shell{display:grid;grid-template-rows:60px 1fr;height:100vh;}
+    header{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 28px;}
+    .logo{display:flex;align-items:center;gap:9px;font-size:1.05rem;font-weight:700;}
+    .logo-dot{width:9px;height:9px;border-radius:50%;background:var(--green);animation:livepulse 2s ease-in-out infinite;}
+    @keyframes livepulse{0%,100%{opacity:1}50%{opacity:0.35}}
+    .live-chip{display:flex;align-items:center;gap:6px;font-size:0.74rem;font-weight:500;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 14px;}
+    .live-chip .dot{color:var(--green);}
+    main{display:grid;grid-template-columns:1fr 400px;height:calc(100vh - 60px);}
+    .video-wrapper{position:relative;background:#111;overflow:hidden;}
+    .video-panel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
+    #videoFeed{width:100%;height:100%;object-fit:cover;transform:scale(1.07);}
+    .bracket{position:absolute;width:22px;height:22px;z-index:6;}
+    .bracket.tl{top:14px;left:14px;border-top:2px solid rgba(255,255,255,0.4);border-left:2px solid rgba(255,255,255,0.4);}
+    .bracket.tr{top:14px;right:14px;border-top:2px solid rgba(255,255,255,0.4);border-right:2px solid rgba(255,255,255,0.4);}
+    .bracket.bl{bottom:14px;left:14px;border-bottom:2px solid rgba(255,255,255,0.4);border-left:2px solid rgba(255,255,255,0.4);}
+    .bracket.br{bottom:14px;right:14px;border-bottom:2px solid rgba(255,255,255,0.4);border-right:2px solid rgba(255,255,255,0.4);}
+    .mode-badge{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:10;font-size:0.72rem;font-weight:600;padding:5px 15px;border-radius:20px;background:rgba(0,0,0,0.5);color:#fff;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,0.15);white-space:nowrap;}
+    .mode-badge.reg{background:rgba(217,119,6,0.8);border-color:rgba(253,230,138,0.3);}
+    .result-overlay{position:absolute;bottom:28px;left:0;right:0;z-index:10;text-align:center;pointer-events:none;}
+    .result-name{display:inline-block;font-size:1.85rem;font-weight:700;color:#fff;background:rgba(22,163,74,0.85);padding:8px 32px 10px;border-radius:10px;backdrop-filter:blur(8px);animation:popIn 0.3s cubic-bezier(0.34,1.56,0.64,1);}
+    .result-name.unknown{background:rgba(220,38,38,0.85);}
+    .result-score{display:block;font-size:0.78rem;color:rgba(255,255,255,0.8);margin-top:6px;}
+    @keyframes popIn{from{opacity:0;transform:translateY(8px) scale(0.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+    .sidebar{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;padding:32px 28px;gap:26px;}
+    .status-card{border-radius:var(--radius);border:1px solid var(--green-bd);background:var(--green-bg);padding:18px 20px;transition:background 0.2s,border-color 0.2s;}
+    .status-card.warn{background:var(--amber-bg);border-color:var(--amber-bd);}
+    .status-card.error{background:var(--red-bg);border-color:var(--red-bd);}
+    .s-label{font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--green);margin-bottom:5px;}
+    .status-card.warn .s-label{color:var(--amber);}
+    .status-card.error .s-label{color:var(--red);}
+    .s-msg{font-size:0.92rem;font-weight:500;color:var(--text);line-height:1.45;}
+    hr{border:none;border-top:1px solid var(--border);margin:0 -28px;}
+    .sec-title{font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:16px;}
+    .btn-register{width:100%;padding:14px 18px;background:var(--blue);color:#fff;border:none;border-radius:9px;font-family:'Inter',sans-serif;font-size:0.92rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background 0.15s,transform 0.1s;}
+    .btn-register:hover{background:#1d4ed8;}
+    .btn-register:active{transform:scale(0.98);}
+    .reg-form{display:none;flex-direction:column;gap:12px;margin-top:16px;}
+    .reg-form.visible{display:flex;}
+    .reg-input{width:100%;padding:13px 15px;border:1px solid var(--border);border-radius:9px;font-family:'Inter',sans-serif;font-size:0.92rem;color:var(--text);background:var(--bg);outline:none;transition:border-color 0.15s,box-shadow 0.15s;}
+    .reg-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,0.1);}
+    .reg-input::placeholder{color:#9ca3af;}
+    .reg-buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+    .btn-go{padding:12px;background:var(--green);color:#fff;border:none;border-radius:8px;font-family:'Inter',sans-serif;font-size:0.88rem;font-weight:600;cursor:pointer;transition:background 0.15s;}
+    .btn-go:hover{background:#15803d;}
+    .btn-no{padding:12px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-family:'Inter',sans-serif;font-size:0.88rem;font-weight:500;cursor:pointer;transition:border-color 0.15s,color 0.15s;}
+    .btn-no:hover{border-color:var(--red);color:var(--red);}
+    .verify-box{display:none;padding:13px 15px;border-radius:9px;font-size:0.86rem;font-weight:500;line-height:1.4;background:var(--green-bg);border:1px solid var(--green-bd);color:var(--green);}
+    .verify-box.warn{background:var(--amber-bg);border-color:var(--amber-bd);color:var(--amber);}
+    .tip{font-size:0.79rem;color:var(--muted);line-height:1.6;text-align:center;margin-top:auto;}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="logo"><div class="logo-dot"></div>Face Recognizer</div>
+  </header>
+  <main>
+    <div class="video-wrapper">
+      <div class="video-panel">
+        <img id="videoFeed" src="/video_feed" alt="Live Feed" />
+      </div>
+      <div class="bracket tl"></div>
+      <div class="bracket tr"></div>
+      <div class="bracket bl"></div>
+      <div class="bracket br"></div>
+      <div class="mode-badge" id="modeBadge">Recognizing</div>
+      <div class="result-overlay">
+        <div class="result-name" id="resultName" style="display:none"></div>
+        <span class="result-score" id="resultScore"></span>
+      </div>
+    </div>
+    <aside class="sidebar">
+      <div class="status-card" id="statusCard">
+        <div class="s-label" id="sLabel">Scanning</div>
+        <div class="s-msg"   id="sMsg">Looking for faces…</div>
+      </div>
+      <hr />
+      <div>
+        <div class="sec-title">Register New Person</div>
+        <button class="btn-register" id="btnShowForm" onclick="toggleForm()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/><line x1="19" y1="8" x2="23" y2="8"/><line x1="21" y1="6" x2="21" y2="10"/></svg>
+          Add New Person
+        </button>
+        <div class="reg-form" id="regForm">
+          <input class="reg-input" type="text" id="regName" placeholder="Enter full name…" maxlength="40" onkeydown="if(event.key==='Enter') confirmRegister()" />
+          <div class="reg-buttons">
+            <button class="btn-go" onclick="confirmRegister()">Capture &amp; Save</button>
+            <button class="btn-no" onclick="cancelRegister()">Cancel</button>
+          </div>
+          <div class="verify-box" id="verifyBanner"></div>
+        </div>
+      </div>
+      <p class="tip">Face the camera directly and stay still for a moment when registering.</p>
+    </aside>
+  </main>
+</div>
+<script>
+let isRegistering=false,lastResultKey='';
+function toggleForm(){
+  const f=document.getElementById('regForm');
+  if(f.classList.contains('visible')){cancelRegister();return;}
+  f.classList.add('visible');
+  document.getElementById('verifyBanner').style.display='none';
+  document.getElementById('regName').focus();
+  document.getElementById('btnShowForm').innerHTML='&#x2715;&nbsp; Close';
+  document.getElementById('btnShowForm').style.background='#6b7280';
+}
+function confirmRegister(){
+  const name=document.getElementById('regName').value.trim();
+  if(!name){document.getElementById('regName').focus();return;}
+  fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})})
+  .then(r=>r.json()).then(d=>{
+    if(!d.ok)return;
+    isRegistering=true;
+    document.getElementById('modeBadge').textContent=`Registering: ${name}`;
+    document.getElementById('modeBadge').className='mode-badge reg';
+    document.getElementById('regForm').classList.remove('visible');
+    document.getElementById('regName').value='';
+    document.getElementById('btnShowForm').style.display='none';
+    setStatus('warn','Registering',`Face the camera — capturing ${name}`);
+  });
+}
+function cancelRegister(){
+  fetch('/api/cancel_register',{method:'POST'});
+  isRegistering=false;
+  document.getElementById('regForm').classList.remove('visible');
+  document.getElementById('regName').value='';
+  document.getElementById('modeBadge').textContent='Recognizing';
+  document.getElementById('modeBadge').className='mode-badge';
+  resetBtn();
+  setStatus('ok','Scanning','Looking for faces…');
+}
+function resetBtn(){
+  const b=document.getElementById('btnShowForm');
+  b.style.display='';b.style.background='';
+  b.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/><line x1="19" y1="8" x2="23" y2="8"/><line x1="21" y1="6" x2="21" y2="10"/></svg> Add New Person`;
+}
+function setStatus(type,label,msg){
+  document.getElementById('statusCard').className='status-card'+(type==='warn'?' warn':type==='error'?' error':'');
+  document.getElementById('sLabel').textContent=label;
+  document.getElementById('sMsg').textContent=msg;
+}
+function showResult(label,score){
+  const n=document.getElementById('resultName'),s=document.getElementById('resultScore');
+  const key=label+score;if(key===lastResultKey)return;lastResultKey=key;
+  if(!label){n.style.display='none';s.textContent='';return;}
+  n.style.display='inline-block';
+  n.className='result-name'+(label==='Unknown'?' unknown':'');
+  n.textContent=label;
+  s.textContent=score?`${(score*100).toFixed(0)}% confidence`:'';
+  n.style.animation='none';void n.offsetWidth;n.style.animation='';
+}
+function pollStatus(){
+  fetch('/api/status').then(r=>r.json()).then(d=>{
+    if(d.mode==='recognize'&&isRegistering){
+      isRegistering=false;
+      document.getElementById('modeBadge').textContent='Recognizing';
+      document.getElementById('modeBadge').className='mode-badge';
+      resetBtn();
+      if(d.verify_result){
+        const b=document.getElementById('verifyBanner');
+        b.textContent=d.verify_result;
+        b.className='verify-box'+(d.reg_status==='warning'?' warn':'');
+        b.style.display='block';
+        document.getElementById('regForm').classList.add('visible');
+      }
+    }
+    if(d.mode==='recognize'){
+      const r=d.last_result;
+      if(!r||r==='No faces registered yet'){
+        showResult('','');
+        setStatus(r?'warn':'ok',r?'No Faces Registered':'Scanning',r?'Register someone first to start recognizing.':'Looking for faces…');
+      }else if(r==='Unknown'){
+        showResult('Unknown','');
+        setStatus('error','Unknown Person','Face detected but not found in the database.');
+      }else{
+        const[name,score]=r.split('|');
+        showResult(name,parseFloat(score));
+        setStatus('ok','Recognized',`Identified as ${name}`);
+      }
+    }
+    if(d.mode==='register'){
+      setStatus('warn','Registering',`Face the camera — capturing "${d.reg_name||'...'}"`);
+    }
+  }).catch(()=>{});
+}
+setInterval(pollStatus,600);pollStatus();
+</script>
+</body>
+</html>

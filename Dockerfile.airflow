@@ -1,0 +1,15 @@
+FROM apache/airflow:3.1.8
+
+USER root
+
+RUN apt-get update && apt-get install -y \
+    git curl libgl1-mesa-glx libglib2.0-0 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+
+ENV PIP_USER=true
+
+RUN pip install --no-cache-dir \
+    "setuptools<70" \
+    mlflow==2.11.1

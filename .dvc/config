@@ -1,0 +1,4 @@
+[core]
+    remote = local_rempote
+['remote "local_rempote"']
+    url = /tmp/dvc-storage

@@ -1,0 +1,6 @@
+outs:
+- md5: f60ed6a5b84d6b382dccef0f9aca6c84.dir
+  size: 44476651
+  nfiles: 9164
+  hash: md5
+  path: lfw

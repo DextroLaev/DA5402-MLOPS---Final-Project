@@ -1,7 +1,7 @@
 import os
 
 # path
-BASE_DIR = '../'
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 RAW_DIR = os.path.join(DATA_DIR, "lfw")           
 PAIRS_FILE = os.path.join(DATA_DIR, "pairs.txt")  
@@ -22,24 +22,28 @@ IMG_CHANNELS = 3
 EMBEDDING_DIM = 128
 DROPOUT_RATE = 0.3
 
+def _env(name, default, cast=float):
+    v = os.environ.get(name)
+    return cast(v) if v is not None else default
+
 # training
-SEED = 42
-BATCH_SIZE = 64
-NUM_EPOCHS = 30
-LEARNING_RATE = 1e-3
-WEIGHT_DECAY = 1e-4
-LR_STEP_SIZE = 10 
-LR_GAMMA = 0.5
+SEED = _env("SEED", 42, int)
+BATCH_SIZE = _env("BATCH_SIZE", 64, int)
+NUM_EPOCHS = _env("NUM_EPOCHS", 30, int)
+LEARNING_RATE = _env("LEARNING_RATE", 1e-3, float)
+WEIGHT_DECAY = _env("WEIGHT_DECAY", 1e-4, float)
+LR_STEP_SIZE = _env("LR_STEP_SIZE", 10, int)
+LR_GAMMA = _env("LR_GAMMA", 0.5, float)
 
 # Two-phase training
-WARMUP_EPOCHS = 5 
-FINETUNE_LR = 1e-4
-BACKBONE_LR = 1e-5
+WARMUP_EPOCHS = _env("WARMUP_EPOCHS", 5, int)
+FINETUNE_LR = _env("FINETUNE_LR", 1e-4, float)
+BACKBONE_LR = _env("BACKBONE_LR", 1e-5, float)
 
 # triplet loss
-MARGIN = 0.5
-TRIPLET_MINING  = "semi"
-MIN_ACTIVE_TRIPLETS = 1
+MARGIN = _env("MARGIN", 0.5, float)
+TRIPLET_MINING = _env("TRIPLET_MINING", "semi", str)
+MIN_ACTIVE_TRIPLETS = _env("MIN_ACTIVE_TRIPLETS", 1, int)
 
 # Train / val / test split ratios (applied to LFW identity map)
 TRAIN_RATIO = 0.70

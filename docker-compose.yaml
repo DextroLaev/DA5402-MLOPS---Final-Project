@@ -1,0 +1,274 @@
+services:
+
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    networks:
+      - mlops-net
+
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    image: trainer:latest   # IMPORTANT (matches DAG)
+    depends_on:
+      - mlflow
+    networks:
+      - mlops-net
+    volumes:
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.1
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+      - ./mlartifacts:/mlartifacts
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlruns/mlflow.db
+      --artifacts-destination /mlartifacts
+      --serve-artifacts
+      --default-artifact-root mlflow-artifacts:/
+    restart: unless-stopped
+    networks:
+      - mlops-net
+
+  flask-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8080:2000"
+    volumes:
+      - ./checkpoints:/app/checkpoints
+      - ./flask_app:/app/flask_app
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+    devices:
+      - dev/video0:/dev/video0
+    privileged: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:2000/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_MODEL_NAME: SiameseFaceRecognition
+      AIRFLOW_BASE_URL: http://airflow-webserver:8080
+      RETRAIN_DAG_ID: face_recognition_pipeline
+      MISCLASSIFY_THRESHOLD: "100"
+      MODEL_RELOAD_INTERVAL_SECS: "60"
+    networks:
+      - mlops-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yaml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - mlops-net
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_PATHS_DATA=/var/lib/grafana
+      - GF_PATHS_LOGS=/var/log/grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - mlops-net
+
+  airflow-init:
+    image: apache/airflow:3.1.8
+    user: "50000:0"
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+    entrypoint: /bin/bash
+    command: >
+      -c "
+      airflow db migrate
+      "
+    networks:
+      - mlops-net
+
+  # ---------------------------
+  # Airflow Webserver
+  # ---------------------------
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    image: airflow-custom:latest
+    user: "50000:0"
+    group_add:
+      - "999"
+    depends_on:
+      airflow-init:
+          condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__API_AUTH__JWT_SECRET: "this_is_a_very_long_secret_key_that_is_at_least_64_bytes_long_!!"
+      AIRFLOW__API_AUTH__JWT_ISSUER: "airflow"
+      HOST_PROJECT_DIR: ${PWD}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./src:/opt/airflow/src
+    ports:
+      - "8081:8080"
+    command: airflow api-server
+    restart: unless-stopped
+    healthcheck:                                  
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - mlops-net
+
+  # ---------------------------
+  # Airflow Scheduler
+  # ---------------------------
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    image: airflow-custom:latest
+    user: "50000:0"
+    group_add:
+      - "999"
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+    command: airflow scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__API_AUTH__JWT_SECRET: "this_is_a_very_long_secret_key_that_is_at_least_64_bytes_long_!!"
+      AIRFLOW__API_AUTH__JWT_ISSUER: "airflow"
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-webserver:8080/execution/"
+      AIRFLOW__DOCKER__DOCKER_URL: unix://var/run/docker.sock
+      HOST_PROJECT_DIR: ${PWD}
+
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+      - ./checkpoints:/opt/airflow/checkpoints
+      - ./data:/opt/airflow/data
+      - /var/run/docker.sock:/var/run/docker.sock 
+    restart: unless-stopped
+    networks:
+      - mlops-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  
+  airflow-dag-processor:
+    image: airflow-custom:latest
+    user: "50000:0"
+    depends_on:
+      airflow-webserver:
+          condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__API_AUTH__JWT_SECRET: "this_is_a_very_long_secret_key_that_is_at_least_64_bytes_long_!!"
+      AIRFLOW__API_AUTH__JWT_ISSUER: "airflow"
+      HOST_PROJECT_DIR: ${PWD}
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+    command: airflow dag-processor
+    restart: unless-stopped
+    networks:
+      - mlops-net
+  
+  node-exporter:
+    image: prom/node-exporter:latest
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)"
+    restart: unless-stopped
+    networks:
+      - mlops-net
+ 
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.0-ubuntu22.04
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - mlops-net
+  
+networks:
+  mlops-net:
+    driver: bridge
+
+volumes:
+  postgres-db-volume:
+  prometheus_data:
+  grafana_data:
