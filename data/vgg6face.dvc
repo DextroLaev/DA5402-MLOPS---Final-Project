@@ -1,0 +1,6 @@
+outs:
+- md5: b78e47f5285f76d3e66dd9455a46d8f6.dir
+  size: 2496073727
+  nfiles: 197693
+  hash: md5
+  path: vgg6face
