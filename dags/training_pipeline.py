@@ -15,6 +15,7 @@ import mlflow
 log = logging.getLogger(__name__)
 
 HOST_PROJECT_DIR = os.environ["HOST_PROJECT_DIR"]
+RUN_REMOTE = os.environ.get('RUN_REMOTE', "false") == 'true'
 
 default_args = {
     "owner":       "mlops",
@@ -44,6 +45,7 @@ def export_misclassified_data(**context):
     if triggered_by != "misclassification_threshold":
         log.info(f"Run triggered by {triggered_by!r}; skipping misclassified export.")
         context["ti"].xcom_push(key="export_total", value=0)
+        context["ti"].xcom_push(key="triggered_by", value=triggered_by)
         return {"exported": 0}
 
     db_path  = _cfg("DB_PATH", "/opt/airflow/data/face_db.sqlite")
@@ -58,6 +60,7 @@ def export_misclassified_data(**context):
     if not rows:
         log.info("Misclassification-triggered run, but no face crops found.")
         context["ti"].xcom_push(key="export_total", value=0)
+        context["ti"].xcom_push(key="triggered_by", value=triggered_by)
         return {"exported": 0}
 
     counts: dict[str, int] = {}
@@ -72,6 +75,7 @@ def export_misclassified_data(**context):
     total = sum(counts.values())
     log.info(f"Exported {total} crops for {len(counts)} persons → {out_root}")
     context["ti"].xcom_push(key="export_total", value=total)
+    context["ti"].xcom_push(key="triggered_by", value=triggered_by)
     return {"exported": total}
 
 
@@ -182,34 +186,103 @@ with DAG(
         python_callable=export_misclassified_data,
     )
 
-    train_model = DockerOperator(
-        task_id="train_model",
-        image="trainer:latest",
-        command="python src/sweep_optuna.py",
-        network_mode="finalproject_mlops-net",
-        auto_remove="force",
-        docker_url="unix://var/run/docker.sock",
-        mount_tmp_dir=False,
-        shm_size=2 * 1024 * 1024 * 1024,
-        device_requests=[DeviceRequest(count=-1, capabilities=[["gpu"]])],
-        mounts=[
-            Mount(source=f"{HOST_PROJECT_DIR}/data",        target="/app/data",        type="bind"),
-            Mount(source=f"{HOST_PROJECT_DIR}/checkpoints", target="/app/checkpoints", type="bind"),
-            Mount(source=f"{HOST_PROJECT_DIR}/logs",        target="/app/logs",        type="bind"),
-        ],
-        environment={
-            "MLFLOW_TRACKING_URI": "http://mlflow:5000",
-            "TRIGGERED_BY":        "{{ dag_run.conf.get('triggered_by', 'schedule') }}",
-            "N_TRIALS":            "{{ params.n_trials }}",
-            "N_EPOCHS_PER_TRIAL":  "{{ dag_run.conf.get('n_epochs_per_trial', params.n_epochs_per_trial) }}",
-            "LR_MIN":              "{{ params.lr_min }}",
-            "LR_MAX":              "{{ params.lr_max }}",
-            "MARGIN_MIN":          "{{ params.margin_min }}",
-            "MARGIN_MAX":          "{{ params.margin_max }}",
-            "MINING_CHOICES":      "{{ params.mining_choices }}",
-        },
-        execution_timeout=timedelta(hours=3),
-    )
+
+    if RUN_REMOTE:
+      
+        train_task = BashOperator(
+            task_id="train_model",
+            bash_command="""
+        set -euo pipefail
+
+        SSH_DIR=/tmp/airflow_ssh_$$
+        mkdir -p $SSH_DIR && chmod 700 $SSH_DIR
+        KEY_SRC=/opt/airflow/ssh_keys/id_rsa
+        if [ ! -f "$KEY_SRC" ]; then
+            echo "ERROR: SSH key not found at $KEY_SRC" >&2
+            exit 1
+        fi
+
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        cp "$KEY_SRC" ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        trap 'rm -f ~/.ssh/id_rsa' EXIT
+
+        SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no"
+
+        LOCAL_MISCLASSIFIED="/opt/airflow/data/misclassified"
+        REMOTE_MISCLASSIFIED="${REMOTE_DATA_DIR}/misclassified"
+        
+        if [ "${TRIGGERED_BY}" = "misclassification_threshold" ] && [ -d "$LOCAL_MISCLASSIFIED" ] && [ "$(ls -A $LOCAL_MISCLASSIFIED 2>/dev/null)" ]; then
+            echo "Syncing misclassified crops to remote server..."
+            rsync -avz --mkpath \
+                -e "ssh $SSH_OPTS" \
+                "$LOCAL_MISCLASSIFIED/" \
+                "${REMOTE_SSH_USER}@${REMOTE_SSH_HOST}:${REMOTE_MISCLASSIFIED}/"
+            echo "Sync complete."
+        else
+            echo "No misclassified data to sync (triggered_by=${TRIGGERED_BY}) — skipping rsync."
+        fi
+
+        CONTAINER_NAME="trainer_$(echo ${AIRFLOW_CTX_DAG_RUN_ID:-$(date +%s)} | tr -cd 'a-zA-Z0-9_.-')"
+
+        # ── Run trainer on remote host ───────────────────────────────────────────────
+        ssh -tt -i ~/.ssh/id_rsa \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o PasswordAuthentication=no \
+            "${REMOTE_SSH_USER}@${REMOTE_SSH_HOST}" \
+            "trap 'docker rm -f ${CONTAINER_NAME} 2>/dev/null || true' EXIT INT TERM HUP; docker run --rm --gpus all --shm-size=2g --name ${CONTAINER_NAME} -e MLFLOW_TRACKING_URI=${REMOTE_MLFLOW_URI} -e TRIGGERED_BY=${TRIGGERED_BY} -e N_TRIALS=${N_TRIALS} -e N_EPOCHS_PER_TRIAL=${N_EPOCHS_PER_TRIAL} -e LR_MIN=${LR_MIN} -e LR_MAX=${LR_MAX} -e MARGIN_MIN=${MARGIN_MIN} -e MARGIN_MAX=${MARGIN_MAX} -e MINING_CHOICES=${MINING_CHOICES} -v ${REMOTE_CODE_DIR}:/app -v ${REMOTE_DATA_DIR}:/app/data dextrolaev/trainer:latest python src/sweep_optuna.py"
+        rm -rf $SSH_DIR
+        """,
+        env={
+            "REMOTE_SSH_USER":   os.environ.get("REMOTE_SSH_USER", "user"),
+            "REMOTE_SSH_HOST":   os.environ.get("REMOTE_SSH_HOST", "100.70.149.42"),
+            "REMOTE_MLFLOW_URI": os.environ.get("REMOTE_MLFLOW_URI", "http://100.64.195.29:5000"),
+            "REMOTE_CODE_DIR":   os.environ.get("REMOTE_CODE_DIR",  "/home/user/code"),
+            "REMOTE_DATA_DIR":   os.environ.get("REMOTE_DATA_DIR",  "/home/user/data"),
+            # Jinja templates are safe here — they're plain Python strings
+            # evaluated by Airflow before the BashOperator runs.
+            "TRIGGERED_BY":      "{{ dag_run.conf.get('triggered_by', 'schedule') }}",
+            "N_TRIALS":          "{{ params.n_trials }}",
+            "N_EPOCHS_PER_TRIAL":"{{ dag_run.conf.get('n_epochs_per_trial', params.n_epochs_per_trial) }}",
+            "LR_MIN":            "{{ params.lr_min }}",
+            "LR_MAX":            "{{ params.lr_max }}",
+            "MARGIN_MIN":        "{{ params.margin_min }}",
+            "MARGIN_MAX":        "{{ params.margin_max }}",
+            "MINING_CHOICES":    "{{ params.mining_choices }}",
+            },
+            append_env=True,
+        )
+    else:
+        train_task = DockerOperator(
+            task_id="train_model",
+            image="trainer:latest",
+            command="python src/sweep_optuna.py",
+            network_mode="finalproject_mlops-net",
+            auto_remove="force",
+            docker_url="unix://var/run/docker.sock",
+            shm_size=2 * 1024 * 1024 * 1024,
+            device_requests=[DeviceRequest(count=-1, capabilities=[["gpu"]])],
+            mounts=[
+                Mount(source=f"{HOST_PROJECT_DIR}/data",        target="/app/data",        type="bind"),
+                Mount(source=f"{HOST_PROJECT_DIR}/checkpoints", target="/app/checkpoints", type="bind"),
+                Mount(source=f"{HOST_PROJECT_DIR}/logs",        target="/app/logs",        type="bind"),
+            ],
+            environment={
+                "MLFLOW_TRACKING_URI": "http://mlflow:5000",
+                "TRIGGERED_BY":        "{{ dag_run.conf.get('triggered_by', 'schedule') }}",
+                "N_TRIALS":            "{{ params.n_trials }}",
+                "N_EPOCHS_PER_TRIAL":  "{{ dag_run.conf.get('n_epochs_per_trial', params.n_epochs_per_trial) }}",
+                "LR_MIN":              "{{ params.lr_min }}",
+                "LR_MAX":              "{{ params.lr_max }}",
+                "MARGIN_MIN":          "{{ params.margin_min }}",
+                "MARGIN_MAX":          "{{ params.margin_max }}",
+                "MINING_CHOICES":      "{{ params.mining_choices }}",
+            },
+            execution_timeout=timedelta(hours=3),
+        )
 
     register_model = BashOperator(
         task_id="register_model",
@@ -231,4 +304,4 @@ with DAG(
         bash_command="sleep 5 && curl -sf http://flask-api:2000/health && echo 'API healthy'",
     )
 
-    export_misclassified >> train_model >> register_model >> promote_model >> notify >> health_check
+    export_misclassified >> train_task >> register_model >> promote_model >> notify >> health_check

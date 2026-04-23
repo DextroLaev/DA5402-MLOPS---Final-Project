@@ -38,6 +38,36 @@ def scan_lfw(data_path, min_images=2):
             mapping[person] = sorted(imgs)
     return mapping
 
+def merge_misclassified_into_train(train_map, misclassified_path):
+    """
+    Merge corrected face crops into train_map ONLY.
+    Called after split_identities() so crops never leak into val or test.
+    """
+    if not misclassified_path or not os.path.exists(misclassified_path):
+        print("[dataloader] No misclassified data found — training on LFW only.")
+        return train_map
+ 
+    merged_identities, merged_images = 0, 0
+    for person in sorted(os.listdir(misclassified_path)):
+        person_dir = os.path.join(misclassified_path, person)
+        if not os.path.isdir(person_dir):
+            continue
+        imgs = [os.path.join(person_dir, f)
+                for f in os.listdir(person_dir) if f.lower().endswith(".jpg")]
+        if not imgs:
+            continue
+        if person in train_map:
+            # Person exists in LFW train split — append corrected crops
+            train_map[person] = sorted(train_map[person] + imgs)
+        else:
+            # New identity not in LFW at all — add to train only
+            train_map[person] = sorted(imgs)
+        merged_identities += 1
+        merged_images += len(imgs)
+ 
+    print(f"[dataloader] Merged {merged_images} misclassified crops "
+          f"across {merged_identities} identities into train set only.")
+    return train_map
 
 def split_identities(identity_map, train_ratio, val_ratio, seed=42):
     names = list(identity_map.keys())
@@ -152,6 +182,11 @@ def get_dataloaders(batch_size=64, k=4, n_test_pairs=2000):
         identity_map, config.TRAIN_RATIO, config.VAL_RATIO, config.SEED
     )
     print(f"train={len(train_map)}  val={len(val_map)}  test={len(test_map)}")
+
+    misclassified_path = os.path.join(config.DATA_DIR, "misclassified")
+    train_map = merge_misclassified_into_train(train_map, misclassified_path)
+    print(f"After merge  — train={len(train_map)}  val={len(val_map)}  test={len(test_map)}")
+ 
 
     train_ds = LFWIdentityDataset(train_map, transform=get_transform("train"))
     val_ds   = LFWIdentityDataset(val_map,   transform=get_transform("val"))

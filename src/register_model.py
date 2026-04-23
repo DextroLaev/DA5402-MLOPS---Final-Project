@@ -3,8 +3,8 @@ import os
 import mlflow
 import config
 
-# mlflow.set_tracking_uri("http://mlflow:5000")
-mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+mlflow.set_tracking_uri("http://mlflow:5000")  
+# mlflow.set_tracking_uri(os.environ["REMOTE_MLFLOW_URI"])
 
 best_file = os.path.join(config.CHECKPOINT_DIR, "best_run.json")
 with open(best_file, "r") as f:

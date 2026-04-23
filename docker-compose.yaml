@@ -1,5 +1,4 @@
 services:
-
   postgres:
     image: postgres:13
     environment:
@@ -78,7 +77,7 @@ services:
       RETRAIN_DAG_ID: face_recognition_pipeline
       AIRFLOW_USERNAME: "airflow"
       AIRFLOW_PASSWORD: "airflow"  
-      MISCLASSIFY_THRESHOLD: "2"
+      MISCLASSIFY_THRESHOLD: "1"
       MODEL_RELOAD_INTERVAL_SECS: "60"
       DB_PATH: /app/data/face_db.sqlite
       PYTHONUNBUFFERED: "1"
@@ -121,7 +120,7 @@ services:
 
   airflow-init:
     image: apache/airflow:3.1.8
-    user: "50000:0"
+    user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
       - postgres
     environment:
@@ -131,6 +130,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
+      
     entrypoint: /bin/bash
     command: >
       -c "
@@ -154,7 +154,7 @@ services:
       context: .
       dockerfile: Dockerfile.airflow
     image: airflow-custom:latest
-    user: "50000:0"
+    user: "${AIRFLOW_UID:-50000}:0"
     group_add:
       - "999"
     depends_on:
@@ -169,11 +169,15 @@ services:
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "airflow:admin"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
       HOST_PROJECT_DIR: ${PWD}
+      RUN_REMOTE: ${RUN_REMOTE}
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - /var/run/docker.sock:/var/run/docker.sock
       - ./src:/opt/airflow/src
+      - ./data:/opt/airflow/data
+      - ~/.ssh/id_rsa:/opt/airflow/ssh_keys/id_rsa:ro
+      - ~/.ssh/id_rsa.pub:/opt/airflow/ssh_keys/id_rsa.pub:ro
       - ./simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     ports:
       - "8081:8080"
@@ -196,7 +200,7 @@ services:
       context: .
       dockerfile: Dockerfile.airflow
     image: airflow-custom:latest
-    user: "50000:0"
+    user: "${AIRFLOW_UID:-50000}:0"
     group_add:
       - "999"
     depends_on:
@@ -213,6 +217,7 @@ services:
       AIRFLOW__DOCKER__DOCKER_URL: unix://var/run/docker.sock
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "airflow:admin"
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
+      RUN_REMOTE: ${RUN_REMOTE}
       HOST_PROJECT_DIR: ${PWD}
 
 
@@ -223,6 +228,8 @@ services:
       - ./checkpoints:/opt/airflow/checkpoints
       - ./data:/opt/airflow/data
       - /var/run/docker.sock:/var/run/docker.sock
+      - ~/.ssh/id_rsa:/opt/airflow/ssh_keys/id_rsa:ro
+      - ~/.ssh/id_rsa.pub:/opt/airflow/ssh_keys/id_rsa.pub:ro
       - ./simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     restart: unless-stopped
     networks:
