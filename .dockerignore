@@ -1,0 +1,10 @@
+.git
+__pycache__
+*.pyc
+logs/
+checkpoints/
+data/
+mlruns/
+mlartifacts/
+*.log
+.env

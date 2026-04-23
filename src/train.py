@@ -34,6 +34,7 @@ def train_epoch(model, loader, criterion, optimizer, device):
         loss, n_active = criterion(embeddings, labels)
 
         if n_active < config.MIN_ACTIVE_TRIPLETS:
+            del loss, embeddings
             continue
 
         loss.backward()
@@ -120,7 +121,8 @@ def load_checkpoint(path, model, optimizer, scheduler, device):
     )
 
 def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nested=False):
-    mlflow.set_tracking_uri('http://mlflow:5000')
+    # mlflow.set_tracking_uri('http://mlflow:5000')
+    mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
     mlflow.set_experiment('face-recognition-siamese')
 
     with mlflow.start_run(nested=mlflow_nested) as run:
@@ -144,7 +146,7 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
         phase = 1
 
         if resume_path and os.path.exists(resume_path):
-            ckpt_phase = torch.load(resume_path, map_location=device).get("phase", 1)
+            ckpt_phase = torch.load(resume_path, map_location="cpu").get("phase", 1)
             if ckpt_phase == 2:
                 for p in model.encoder.backbone.parameters():
                     p.requires_grad = True
@@ -176,10 +178,10 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
                 scheduler = CosineAnnealingLR(optimizer,T_max  = config.NUM_EPOCHS - WARMUP_EPOCHS,eta_min= FINETUNE_LR * 0.01,)
     
             t0 = time.time()
-            tr_loss, _ = train_epoch(model, train_loader, criterion, optimizer, device)
+            tr_loss, tr_acc = train_epoch(model, train_loader, criterion, optimizer, device)
             vl_loss, vl_acc = val_epoch(model, val_loader, criterion, device)
-            tr_acc = eval_mode_accuracy(model, train_loader, device)
             scheduler.step()
+            torch.cuda.empty_cache()
     
             history["train_loss"].append(tr_loss)
             history["train_acc"].append(tr_acc)
@@ -211,6 +213,9 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
             best_state = torch.load(best_ckpt_path, map_location=device)["model_state_dict"]
             model.load_state_dict(best_state)
             mlflow.pytorch.log_model(model, "best_model")
+        
+        model.cpu()
+        torch.cuda.empty_cache()
 
         with open(os.path.join(config.LOG_DIR, "history.json"), "w") as f:
             json.dump(history, f, indent=2)

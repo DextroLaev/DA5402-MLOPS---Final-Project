@@ -16,16 +16,20 @@ services:
       context: .
       dockerfile: Dockerfile.train
     image: trainer:latest   # IMPORTANT (matches DAG)
+    command: ["echo","image ready"]
     depends_on:
       - mlflow
     networks:
       - mlops-net
+    shm_size: '2gb'
     volumes:
       - ./checkpoints:/app/checkpoints
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - GIT_PYTHON_REFRESH=quiet
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.11.1
@@ -55,6 +59,7 @@ services:
     volumes:
       - ./checkpoints:/app/checkpoints
       - ./flask_app:/app/flask_app
+      - ./data:/app/data
     depends_on:
       - mlflow
     restart: unless-stopped
@@ -71,8 +76,12 @@ services:
       MLFLOW_MODEL_NAME: SiameseFaceRecognition
       AIRFLOW_BASE_URL: http://airflow-webserver:8080
       RETRAIN_DAG_ID: face_recognition_pipeline
-      MISCLASSIFY_THRESHOLD: "100"
+      AIRFLOW_USERNAME: "airflow"
+      AIRFLOW_PASSWORD: "airflow"  
+      MISCLASSIFY_THRESHOLD: "2"
       MODEL_RELOAD_INTERVAL_SECS: "60"
+      DB_PATH: /app/data/face_db.sqlite
+      PYTHONUNBUFFERED: "1"
     networks:
       - mlops-net
     deploy:
@@ -126,6 +135,13 @@ services:
     command: >
       -c "
       airflow db migrate
+      airflow users create \
+        --username airflow \
+        --password airflow \
+        --firstname Admin \
+        --lastname User \
+        --role Admin \
+        --email admin@airflow.com || true
       "
     networks:
       - mlops-net
@@ -150,12 +166,15 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__API_AUTH__JWT_SECRET: "this_is_a_very_long_secret_key_that_is_at_least_64_bytes_long_!!"
       AIRFLOW__API_AUTH__JWT_ISSUER: "airflow"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "airflow:admin"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
       HOST_PROJECT_DIR: ${PWD}
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - /var/run/docker.sock:/var/run/docker.sock
       - ./src:/opt/airflow/src
+      - ./simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     ports:
       - "8081:8080"
     command: airflow api-server
@@ -192,6 +211,8 @@ services:
       AIRFLOW__API_AUTH__JWT_ISSUER: "airflow"
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: "http://airflow-webserver:8080/execution/"
       AIRFLOW__DOCKER__DOCKER_URL: unix://var/run/docker.sock
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "airflow:admin"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
       HOST_PROJECT_DIR: ${PWD}
 
 
@@ -201,7 +222,8 @@ services:
       - ./src:/opt/airflow/src
       - ./checkpoints:/opt/airflow/checkpoints
       - ./data:/opt/airflow/data
-      - /var/run/docker.sock:/var/run/docker.sock 
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     restart: unless-stopped
     networks:
       - mlops-net
@@ -225,12 +247,15 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__API_AUTH__JWT_SECRET: "this_is_a_very_long_secret_key_that_is_at_least_64_bytes_long_!!"
       AIRFLOW__API_AUTH__JWT_ISSUER: "airflow"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "airflow:admin"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
       HOST_PROJECT_DIR: ${PWD}
 
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./src:/opt/airflow/src
+      - ./simple_auth_manager_passwords.json:/opt/airflow/simple_auth_manager_passwords.json
     command: airflow dag-processor
     restart: unless-stopped
     networks:

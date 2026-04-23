@@ -15,7 +15,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # image
-IMG_SIZE = 105
+IMG_SIZE = 224
 IMG_CHANNELS = 3
 
 # model
@@ -28,7 +28,7 @@ def _env(name, default, cast=float):
 
 # training
 SEED = _env("SEED", 42, int)
-BATCH_SIZE = _env("BATCH_SIZE", 64, int)
+BATCH_SIZE = _env("BATCH_SIZE", 32, int)
 NUM_EPOCHS = _env("NUM_EPOCHS", 30, int)
 LEARNING_RATE = _env("LEARNING_RATE", 1e-3, float)
 WEIGHT_DECAY = _env("WEIGHT_DECAY", 1e-4, float)

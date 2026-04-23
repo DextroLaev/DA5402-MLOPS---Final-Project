@@ -105,7 +105,7 @@ AIRFLOW_PASSWORD        = os.environ.get("AIRFLOW_PASSWORD", "airflow")
 RETRAIN_DAG_ID          = os.environ.get("RETRAIN_DAG_ID", "face_retraining_dag")
 
 # Misclassification threshold: trigger retraining after this many unique misclassified people
-MISCLASSIFY_THRESHOLD   = int(os.environ.get("MISCLASSIFY_THRESHOLD", "100"))
+MISCLASSIFY_THRESHOLD   = int(os.environ.get("MISCLASSIFY_THRESHOLD", "2"))
 
 # ── MediaPipe detector settings ───────────────────────────────────────────────
 # model_selection=1  → full-range model (detects faces up to 5 m away, better
@@ -149,6 +149,12 @@ g_state = {
     "last_result":   "",
     "reg_status":    "",
     "verify_result": "",
+    "hitl_pending":  False,
+    "hitl_embedding": None,
+    "hitl_face_crop": None,
+    "hitl_predicted": "",
+    "hitl_score":     0.0,
+    '_last_face_crop':None,
 }
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -182,6 +188,14 @@ def init_db():
             timestamp     REAL    NOT NULL
         )
     """)
+    # con.execute("""
+    #     CREATE TABLE IF NOT EXISTS retrain_queue (
+    #         id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    #         true_label TEXT    NOT NULL,
+    #         embedding  BLOB    NOT NULL,
+    #         flagged_at TEXT    DEFAULT (datetime('now'))
+    #     )
+    # """)
     con.commit()
     con.close()
 
@@ -266,35 +280,52 @@ def log_misclassification(true_name: str, predicted: str, score: float,
     row = con.execute(
         "SELECT COUNT(DISTINCT true_name) FROM misclassifications WHERE corrected=0"
     ).fetchone()
-    unique_count = row[0] if row else 0
+    pending_count = row[0] if row else 0
     con.commit()
     con.close()
 
     print(f"[Misclassification] true={true_name}  pred={predicted}  "
-          f"score={score:.3f}  unique_misclassified={unique_count}")
+          f"score={score:.3f}  pending_misclassified={pending_count}")
 
-    if unique_count >= MISCLASSIFY_THRESHOLD:
+    if pending_count >= MISCLASSIFY_THRESHOLD:
         _trigger_retraining_dag()
+
+
+def _get_airflow_token() -> str:
+    """Exchange username/password for a JWT Bearer token (Airflow 3.x)."""
+    resp = http_requests.post(
+        f"{AIRFLOW_BASE_URL}/auth/token",
+        json={"username": AIRFLOW_USERNAME, "password": AIRFLOW_PASSWORD},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
 
 
 def _trigger_retraining_dag():
     url = f"{AIRFLOW_BASE_URL}/api/v2/dags/{RETRAIN_DAG_ID}/dagRuns"
+    now = datetime.datetime.now(datetime.timezone.utc)
+    logical_date = now.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     payload = {
+        "dag_run_id":   f"misclassify_{int(now.timestamp())}",
+        "logical_date": logical_date,
         "conf": {
-            "triggered_by": "misclassification_threshold",
-            "threshold":    MISCLASSIFY_THRESHOLD,
-            "timestamp":    time.time(),
-        }
+            "triggered_by":       "misclassification_threshold",
+            "threshold":          MISCLASSIFY_THRESHOLD,
+            "timestamp":          now.timestamp(),
+            "n_epochs_per_trial": 25,
+        },
     }
     try:
+        token = _get_airflow_token()                          # ← get JWT first
         resp = http_requests.post(
             url,
             json=payload,
-            auth=(AIRFLOW_USERNAME, AIRFLOW_PASSWORD),
+            headers={"Authorization": f"Bearer {token}"},    # ← Bearer, not Basic
             timeout=10,
         )
         if resp.status_code in (200, 201):
-            print(f"[Airflow] Retraining DAG triggered successfully: {resp.json().get('dag_run_id')}")
+            print(f"[Airflow] Retraining DAG triggered: {resp.json().get('dag_run_id')}")
             _mark_misclassifications_triggered()
         else:
             print(f"[Airflow] Failed to trigger DAG: {resp.status_code} {resp.text}")
@@ -312,11 +343,11 @@ def _mark_misclassifications_triggered():
 def get_misclassification_stats():
     con = sqlite3.connect(DB_PATH)
     total = con.execute("SELECT COUNT(*) FROM misclassifications").fetchone()[0]
-    unique = con.execute(
-        "SELECT COUNT(DISTINCT true_name) FROM misclassifications WHERE corrected=0"
+    pending = con.execute(
+        "SELECT COUNT(*) FROM misclassifications WHERE corrected=0"
     ).fetchone()[0]
     con.close()
-    return {"total": total, "unique_pending": unique, "threshold": MISCLASSIFY_THRESHOLD}
+    return {"total": total, "unique_pending": pending, "threshold": MISCLASSIFY_THRESHOLD}
 
 
 # ── MLflow model loading ──────────────────────────────────────────────────────
@@ -494,7 +525,7 @@ def gen_frames():
     reg_state = "idle"
     reg_start = 0.0
     reg_crop  = None
-    HOLD_SECS = 0.5
+    HOLD_SECS = 1
 
     try:
         while not _stop.is_set():
@@ -512,6 +543,7 @@ def gen_frames():
                 face_crop = frame[y:y + h, x:x + w]
 
             mode = g_state["mode"]
+            g_state['_last_face_crop'] = face_crop
 
             # ── RECOGNITION mode ──────────────────────────────────────────────
             if mode == "recognize":
@@ -575,10 +607,15 @@ def gen_frames():
                         cv2.putText(frame, "Registered!", (20, 50),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 180), 3, cv2.LINE_AA)
 
-                    g_state["mode"]     = "recognize"
+                        g_state["hitl_embedding"] = emb
+                        g_state["hitl_pending"] = True
+                        g_state["reg_status"] = "hitl_ready"
+                        g_state["verify_result"] = ""
+
+                    g_state["mode"] = "recognize"
                     g_state["reg_name"] = ""
-                    reg_state           = "idle"
-                    reg_crop            = None
+                    reg_state = "idle"
+                    reg_crop = None
 
             ret2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if not ret2:
@@ -695,8 +732,57 @@ def api_status():
         "verify_result":   g_state["verify_result"],
         "model_version":   model_version,
         "misclassify":     get_misclassification_stats(),
+        "hitl_pending":    g_state["hitl_pending"],
     })
 
+@app.route("/api/test_recognition", methods=["POST"])
+def api_test_recognition():
+    """Run one inference on the most-recently seen face and return result."""
+    crop = g_state.get("_last_face_crop")
+    if crop is None or model is None:
+        return jsonify({"ok": False, "error": "No face visible — stand in front of camera first"})
+
+    emb = get_embedding(crop)
+    label, score = db_recognize(emb)
+    g_state["hitl_embedding"] = emb
+    g_state["hitl_face_crop"] = crop.copy()
+    g_state["hitl_predicted"] = label
+    g_state["hitl_score"]     = float(score)
+    return jsonify({"ok": True, "name": label, "score": round(float(score), 3)})
+
+@app.route("/api/flag_retrain", methods=["POST"])
+def api_flag_retrain():
+    """User said recognition was wrong — save face crop with the correct label as a retraining sample."""
+    data = request.get_json(force=True)
+    true_label = (data.get("true_label") or "").strip()
+    if not true_label:
+        return jsonify({"ok": False, "error": "true_label is required"}), 400
+
+    crop = g_state.get("hitl_face_crop")
+    if crop is None:
+        return jsonify({"ok": False, "error": "No face crop to flag — run Test Recognition first"}), 400
+
+    predicted = g_state.get("hitl_predicted", "")
+    score     = float(g_state.get("hitl_score", 0.0))
+
+    log_misclassification(true_label, predicted, score, face_bgr=crop)
+
+    try:
+        out_dir = os.path.join("/app/data", "misclassified", true_label)
+        os.makedirs(out_dir, exist_ok=True)
+        fname   = f"{int(time.time()*1000)}.jpg"
+        cv2.imwrite(os.path.join(out_dir, fname), crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    except Exception as exc:
+        print(f"[flag_retrain] disk save skipped: {exc}")
+
+    g_state["hitl_pending"]   = False
+    g_state["hitl_embedding"] = None
+    g_state["hitl_face_crop"] = None
+    g_state["hitl_predicted"] = ""
+    g_state["hitl_score"]     = 0.0
+
+    stats = get_misclassification_stats()
+    return jsonify({"ok": True, "queued": true_label, "stats": stats})
 
 @app.route("/api/register", methods=["POST"])
 def api_register():

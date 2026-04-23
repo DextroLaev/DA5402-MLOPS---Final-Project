@@ -47,7 +47,7 @@ def export_misclassified_data(**context):
         return {"exported": 0}
 
     db_path  = _cfg("DB_PATH", "/opt/airflow/data/face_db.sqlite")
-    out_root = os.path.join(HOST_PROJECT_DIR, "data", "misclassified")
+    out_root = _cfg("MISCLASSIFIED_DIR", "/opt/airflow/data/misclassified")
 
     con  = sqlite3.connect(db_path)
     rows = con.execute(
@@ -167,7 +167,7 @@ with DAG(
     default_args=default_args,
     tags=["face-recognition", "mlops"],
     params={
-        "n_trials":           Param(5,    type="integer"),
+        "n_trials":           Param(1,    type="integer"),
         "n_epochs_per_trial": Param(3,    type="integer"),
         "lr_min":             Param(1e-5, type="number"),
         "lr_max":             Param(1e-2, type="number"),
@@ -187,7 +187,7 @@ with DAG(
         image="trainer:latest",
         command="python src/sweep_optuna.py",
         network_mode="finalproject_mlops-net",
-        auto_remove="success",
+        auto_remove="force",
         docker_url="unix://var/run/docker.sock",
         mount_tmp_dir=False,
         shm_size=2 * 1024 * 1024 * 1024,
@@ -201,7 +201,7 @@ with DAG(
             "MLFLOW_TRACKING_URI": "http://mlflow:5000",
             "TRIGGERED_BY":        "{{ dag_run.conf.get('triggered_by', 'schedule') }}",
             "N_TRIALS":            "{{ params.n_trials }}",
-            "N_EPOCHS_PER_TRIAL":  "{{ params.n_epochs_per_trial }}",
+            "N_EPOCHS_PER_TRIAL":  "{{ dag_run.conf.get('n_epochs_per_trial', params.n_epochs_per_trial) }}",
             "LR_MIN":              "{{ params.lr_min }}",
             "LR_MAX":              "{{ params.lr_max }}",
             "MARGIN_MIN":          "{{ params.margin_min }}",
