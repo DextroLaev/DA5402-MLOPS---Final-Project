@@ -1,0 +1,196 @@
+name: CI/CD Pipeline
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:          # allows manual trigger from GitHub UI
+
+# ── Shared env ──
+env:
+  REGISTRY: docker.io
+  API_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/face-recognition-api
+  TRAINER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/face-recognition-trainer
+  AIRFLOW_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/face-recognition-airflow
+
+# Cancel in-progress runs on the same branch (avoid redundant builds)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 1 — Lint & Unit Tests
+  # Runs on every push and every PR. Fast — no Docker, no GPU needed.
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          pip install --upgrade pip
+          pip install flake8 pytest pytest-cov
+          # Install CPU-only torch for unit tests (no GPU needed)
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install mlflow==2.11.1 optuna pillow opencv-python-headless
+
+      - name: Lint with flake8
+        run: |
+          # Fail on syntax errors and undefined names
+          flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warn on style issues (don't fail the build)
+          flake8 src/ --count --exit-zero --max-complexity=12 --max-line-length=120 --statistics
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --tb=short --cov=src --cov-report=xml --cov-report=term-missing
+        env:
+          PYTHONPATH: src
+          MLFLOW_TRACKING_URI: sqlite:///test_mlflow.db   # local SQLite for tests
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 2 — Build & Push Docker Images
+  # Only runs on push to main or develop (not on PRs).
+  # Builds all three images in parallel.
+  # ────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: test                         # only build if tests pass
+    if: github.event_name == 'push'     # skip on PRs
+
+    strategy:
+      matrix:
+        include:
+          - dockerfile: Dockerfile.api
+            image_env: API_IMAGE
+            context: .
+          - dockerfile: Dockerfile.train
+            image_env: TRAINER_IMAGE
+            context: .
+          - dockerfile: Dockerfile.airflow
+            image_env: AIRFLOW_IMAGE
+            context: .
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env[matrix.image_env] }}
+          tags: |
+            # Always tag with the short git SHA so every build is traceable
+            type=sha,prefix=,suffix=,format=short
+            # Tag as 'latest' only on main branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # Tag as 'dev' on develop branch
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/develop' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache layers from the registry — speeds up subsequent builds significantly
+          cache-from: type=registry,ref=${{ env[matrix.image_env] }}:buildcache
+          cache-to: type=registry,ref=${{ env[matrix.image_env] }}:buildcache,mode=max
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 3 — Deploy to Production Server
+  # SSH into your local machine and do a rolling update.
+  # Only runs after a successful build on the main branch.
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    # Require manual approval before deploying (optional — remove if unwanted)
+    environment:
+      name: production
+      url: http://${{ secrets.DEPLOY_HOST }}:8080
+
+    steps:
+      - name: Checkout code (needed for docker-compose.yaml)
+        uses: actions/checkout@v4
+
+      - name: Set image tag from git SHA
+        id: tag
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          # ── What runs on your machine ──────────────────────────────────────
+          script: |
+            set -euo pipefail
+            cd ${{ secrets.DEPLOY_PROJECT_DIR }}
+
+            echo "=== Pulling latest code ==="
+            git pull origin main
+
+            echo "=== Pulling new Docker images ==="
+            docker pull ${{ env.API_IMAGE }}:${{ steps.tag.outputs.sha }}
+            docker pull ${{ env.TRAINER_IMAGE }}:${{ steps.tag.outputs.sha }}
+            docker pull ${{ env.AIRFLOW_IMAGE }}:${{ steps.tag.outputs.sha }}
+
+            echo "=== Tagging as latest locally ==="
+            docker tag ${{ env.API_IMAGE }}:${{ steps.tag.outputs.sha }} ${{ env.API_IMAGE }}:latest
+            docker tag ${{ env.TRAINER_IMAGE }}:${{ steps.tag.outputs.sha }} trainer:latest
+            docker tag ${{ env.AIRFLOW_IMAGE }}:${{ steps.tag.outputs.sha }} airflow-custom:latest
+
+            echo "=== Rolling restart — API only (zero-downtime) ==="
+            # Restart flask-api without touching trainer/airflow/mlflow
+            docker compose up -d --no-deps flask-api
+
+            echo "=== Restarting Airflow components ==="
+            docker compose up -d --no-deps airflow-webserver airflow-scheduler airflow-dag-processor
+
+            echo "=== Waiting for health checks ==="
+            sleep 10
+            docker compose ps
+
+            echo "=== Verifying API health ==="
+            curl -sf http://localhost:8080/health || (echo "Health check FAILED" && exit 1)
+
+            echo "=== Deploy complete — SHA ${{ steps.tag.outputs.sha }} ==="

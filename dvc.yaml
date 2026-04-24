@@ -1,0 +1,52 @@
+# dvc.yaml
+stages:
+  prepare_data:
+    foreach:
+      - lfw
+      - vggface2
+    do:
+      cmd: DATASET_NAME=${item} python src/prepare_data.py
+      deps:
+        - data/${item}
+        - src/config.py
+        - src/prepare_data.py
+      outs:
+        - data/${item}_baseline_stats.json
+        - data/${item}_manifest.json
+      metrics:
+        - data/${item}_data_metrics.json:
+            cache: false
+
+  train:
+    foreach:
+      - lfw
+      - vggface2
+    do:
+      cmd: DATASET_NAME=${item} python src/sweep_optuna.py
+      deps:
+        - data/${item}_manifest.json
+        - src/config.py
+        - src/dataloader.py
+        - src/model.py
+        - src/sweep_optuna.py
+        - src/train.py
+        - src/utils.py
+      params:
+        - train
+      outs:
+        - checkpoints/${item}_best_run.json
+      metrics:
+        - checkpoints/${item}_dvc_metrics.json:
+            cache: false
+
+  register:
+    foreach:
+      - lfw
+      - vggface2
+    do:
+      cmd: DATASET_NAME=${item} python src/register_model.py
+      deps:
+        - checkpoints/${item}_best_run.json
+        - src/register_model.py
+      outs:
+        - checkpoints/${item}_registered_version.txt

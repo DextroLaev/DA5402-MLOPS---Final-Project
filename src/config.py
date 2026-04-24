@@ -2,8 +2,10 @@ import os
 
 # path
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+DATASET_NAME = os.environ.get('DATASET_NAME','lfw')
 DATA_DIR = os.path.join(BASE_DIR, "data")
-RAW_DIR = os.path.join(DATA_DIR, "lfw")           
+RAW_DIR = os.path.join(DATA_DIR, DATASET_NAME)           
 PAIRS_FILE = os.path.join(DATA_DIR, "pairs.txt")  
 CHECKPOINT_DIR = os.path.join(BASE_DIR, "checkpoints")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
@@ -59,8 +61,8 @@ RANDOM_ROTATION_DEG = 10
 # inference
 THRESHOLD = 0.8
 
-NUM_WORKERS = 4
-PIN_MEMORY = True
+NUM_WORKERS = 0
+PIN_MEMORY = False
 
 # ─── Logging / checkpointing ──────────────────────────────────────────────────
 SAVE_EVERY_N_EPOCHS = 5

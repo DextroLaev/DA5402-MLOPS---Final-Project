@@ -1,0 +1,32 @@
+# params.yaml — Single source of truth for pipeline hyperparameters.
+#
+# Both DVC (dvc repro) and Airflow DAG params should mirror this file.
+# When you change anything here and run `dvc repro`, DVC knows to re-run
+# only the affected downstream stages.
+#
+# Commit this file to git. DVC will detect changes and invalidate the cache.
+
+prepare:
+  train_ratio: 0.70
+  val_ratio: 0.15
+  seed: 42
+  min_images_per_identity: 2
+  dataset_name: lfw
+
+train:
+  n_trials: 1
+  n_epochs_per_trial: 3
+  lr_min: 1.0e-5
+  lr_max: 1.0e-2
+  margin_min: 0.2
+  margin_max: 1.0
+  mining_choices: "semi,hard"
+  batch_size: 32
+  embedding_dim: 128
+  dropout_rate: 0.3
+  warmup_epochs: 5
+
+inference:
+  threshold: 0.8
+  misclassify_threshold: 1
+  model_reload_interval_secs: 60

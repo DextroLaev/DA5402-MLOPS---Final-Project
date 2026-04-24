@@ -3,8 +3,8 @@ import os
 import mlflow
 import config
 
-mlflow.set_tracking_uri("http://mlflow:5000")  
-# mlflow.set_tracking_uri(os.environ["REMOTE_MLFLOW_URI"])
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
 best_file = os.path.join(config.CHECKPOINT_DIR, "best_run.json")
 with open(best_file, "r") as f:
@@ -28,4 +28,10 @@ client.transition_model_version_stage(
     stage="Staging",
 )
 
-print(f"Model version {result.version} promoted to Production")
+print(f"Model version {result.version} registered and promoted to Staging")
+
+# ── Write version file (DVC tracks this as output of 'register' stage) ────────
+version_file = os.path.join(config.CHECKPOINT_DIR, "registered_version.txt")
+with open(version_file, "w") as f:
+    f.write(f"{result.version}\n")
+print(f"Wrote {version_file}")
