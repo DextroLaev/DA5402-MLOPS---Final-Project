@@ -167,7 +167,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
-          
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -193,15 +193,11 @@ jobs:
             docker tag ${{ env.TRAINER_IMAGE }}:${{ steps.tag.outputs.sha }} trainer:latest
             docker tag ${{ env.AIRFLOW_IMAGE }}:${{ steps.tag.outputs.sha }} airflow-custom:latest
 
-            echo "=== Rolling restart — API only (zero-downtime) ==="
-            # Restart flask-api without touching trainer/airflow/mlflow
-            docker compose up -d --no-deps flask-api
-
-            echo "=== Restarting Airflow components ==="
-            docker compose up -d --no-deps airflow-webserver airflow-scheduler airflow-dag-processor
+            echo "=== Starting all services ==="
+            docker compose up -d
 
             echo "=== Waiting for health checks ==="
-            sleep 10
+            sleep 30
             docker compose ps
 
             echo "=== Verifying API health ==="
