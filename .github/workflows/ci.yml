@@ -144,7 +144,7 @@ jobs:
     # Require manual approval before deploying (optional — remove if unwanted)
     environment:
       name: production
-      url: http://${{ secrets.DEPLOY_HOST }}:8080
+      url: http://localhost:8080
 
     steps:
       - name: Checkout code (needed for docker-compose.yaml)
@@ -160,7 +160,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          port: ${{ secrets.DEPLOY_PORT }}
           # ── What runs on your machine ──────────────────────────────────────
           script: |
             set -euo pipefail
