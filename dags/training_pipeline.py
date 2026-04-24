@@ -236,9 +236,10 @@ with DAG(
         "margin_min":         Param(0.2,  type="number"),
         "margin_max":         Param(1.0,  type="number"),
         "mining_choices":     Param("semi,hard", type="string"),
-        "dataset":            Param('lfw',type='string')
+        "dataset":            Param('lfw',type='string'),
     },
 ) as dag:
+    
     prepare_data = PythonOperator(
         task_id="prepare_data",
         python_callable=run_prepare_data,

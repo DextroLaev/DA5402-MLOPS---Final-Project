@@ -92,16 +92,34 @@ jobs:
           - dockerfile: Dockerfile.api
             image_env: API_IMAGE
             context: .
+            paths: '["Dockerfile.api", "flask_app/**", "src/**", "requirements.txt"]'
           - dockerfile: Dockerfile.train
             image_env: TRAINER_IMAGE
             context: .
+            paths: '["Dockerfile.train", "src/**", "requirements.txt"]'
           - dockerfile: Dockerfile.airflow
             image_env: AIRFLOW_IMAGE
             context: .
+            paths: '["Dockerfile.airflow","dags/**"]'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Check if rebuild needed
+        id: changes
+        run: |
+          PATHS='${{ matrix.paths }}'
+          CHANGED=false
+          for pattern in $(echo $PATHS | tr -d '[]"' | tr ',' ' '); do
+            if git diff --name-only HEAD~1 HEAD | grep -qE "$pattern"; then
+              CHANGED=true
+              break
+            fi
+          done
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
