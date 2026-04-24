@@ -59,7 +59,7 @@ jobs:
         run: |
           pytest tests/ -v --tb=short --cov=src --cov-report=xml --cov-report=term-missing
         env:
-          PYTHONPATH: src
+          PYTHONPATH: ${{ github.workspace }}
           MLFLOW_TRACKING_URI: sqlite:///test_mlflow.db   # local SQLite for tests
 
       - name: Upload coverage report
