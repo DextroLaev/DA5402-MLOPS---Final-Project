@@ -214,11 +214,22 @@ jobs:
             echo "=== Starting all services ==="
             docker compose up -d
 
-            echo "=== Waiting for health checks ==="
-            sleep 30
-            docker compose ps
+            echo "=== Waiting for Flask API to be healthy ==="
+            for i in $(seq 1 20); do
+              if curl -sf http://localhost:8080/health; then
+                echo "Flask is healthy!"
+                break
+              fi
+              echo "Attempt $i/20 — waiting 10s..."
+              sleep 10
+              if [ $i -eq 20 ]; then
+                echo "Health check FAILED after 200s"
+                docker compose ps
+                docker compose logs flask-api --tail=50
+                exit 1
+              fi
+            done
 
-            echo "=== Verifying API health ==="
-            curl -sf http://localhost:8080/health || (echo "Health check FAILED" && exit 1)
+            docker compose ps
 
             echo "=== Deploy complete — SHA ${{ steps.tag.outputs.sha }} ==="
