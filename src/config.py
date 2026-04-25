@@ -30,7 +30,7 @@ def _env(name, default, cast=float):
 
 # training
 SEED = _env("SEED", 42, int)
-BATCH_SIZE = _env("BATCH_SIZE", 32, int)
+BATCH_SIZE = _env("BATCH_SIZE", 128, int)
 NUM_EPOCHS = _env("NUM_EPOCHS", 30, int)
 LEARNING_RATE = _env("LEARNING_RATE", 1e-3, float)
 WEIGHT_DECAY = _env("WEIGHT_DECAY", 1e-4, float)

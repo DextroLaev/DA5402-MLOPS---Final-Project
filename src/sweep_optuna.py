@@ -46,6 +46,8 @@ MINING_CHOICES = os.environ.get("MINING_CHOICES",_p["mining_choices"]).split(","
 TRIGGERED_BY = os.environ.get("TRIGGERED_BY", "schedule")
 MODEL_NAME = os.environ.get("MLFLOW_MODEL_NAME", "SiameseFaceRecognition")
 
+if TRIGGERED_BY == "misclassification_threshold":
+    N_TRIALS = 1
 
 def _load_production_state_dict(client: MlflowClient):
     """Fetch the current Production model's state_dict, or None if absent."""
@@ -155,14 +157,47 @@ def main():
         json.dump(out, f, indent=2)
     print(f"Wrote {config.CHECKPOINT_DIR}/best_run.json")
 
+    best_mlflow_metrics = client.get_run(best_run_id).data.metrics
+
+    data_metrics_path = os.path.join(config.DATA_DIR, f"{config.DATASET_NAME}_data_metrics.json")
+    data_metrics = {}
+
+    if os.path.exists(data_metrics_path):
+        with open(data_metrics_path) as f:
+            data_metrics = json.load(f)
+    else:
+        print(f"[sweep] Warning: data metrics not found at {data_metrics_path} — skipping merge.")
+    
+    _params_train = _p
+    _params_prepare = yaml.safe_load(
+        open(_params_path).read()
+    ).get("prepare", {})
+
     dvc_metrics = {
-        "val_loss": best.value,
-        "n_trials": N_TRIALS,
-        "best_trial": best.number,
+        "dataset_name":  config.DATASET_NAME,
+        "n_trials":      N_TRIALS,
+        "best_trial":    best.number,
+        "val_loss":      best_mlflow_metrics.get("val_loss",   best.value),
+        "train_loss":    best_mlflow_metrics.get("train_loss"),
+        "val_acc":       best_mlflow_metrics.get("val_acc"),
+        "train_acc":     best_mlflow_metrics.get("train_acc"),
+        "lr":            best.params.get("learning_rate"),
+        "margin":        best.params.get("margin"),
+        "mining":        best.params.get("triplet_mining"),
+        "epochs":        N_EPOCHS_PER_TRIAL,
+        "batch_size":    config.BATCH_SIZE,
+        "train_ratio":   _params_prepare.get("train_ratio"),
+        "val_ratio":     _params_prepare.get("val_ratio"),
+
+        **data_metrics,
     }
-    with open(os.path.join(config.CHECKPOINT_DIR, f"{config.DATASET_NAME}_dvc_metrics.json"), "w") as f:
+
+    dvc_path = os.path.join(config.CHECKPOINT_DIR, f"{config.DATASET_NAME}_dvc_metrics.json")
+    
+    with open(dvc_path, "w") as f:
         json.dump(dvc_metrics, f, indent=2)
-
-
+    print(f"[sweep] Wrote consolidated metrics → {dvc_path}")
+ 
+ 
 if __name__ == "__main__":
     main()

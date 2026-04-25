@@ -127,6 +127,12 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      REMOTE_SSH_HOST: ${REMOTE_SSH_HOST}
+      REMOTE_SSH_USER: ${REMOTE_SSH_USER}
+      REMOTE_MLFLOW_URI: ${REMOTE_MLFLOW_URI}
+      REMOTE_CODE_DIR: ${REMOTE_CODE_DIR}
+      REMOTE_DATA_DIR: ${REMOTE_DATA_DIR}
+      MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME}
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
@@ -170,6 +176,12 @@ services:
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
       HOST_PROJECT_DIR: ${PWD}
       RUN_REMOTE: ${RUN_REMOTE}
+      REMOTE_SSH_HOST: ${REMOTE_SSH_HOST}
+      REMOTE_SSH_USER: ${REMOTE_SSH_USER}
+      REMOTE_MLFLOW_URI: ${REMOTE_MLFLOW_URI}
+      REMOTE_CODE_DIR: ${REMOTE_CODE_DIR}
+      REMOTE_DATA_DIR: ${REMOTE_DATA_DIR}
+      MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME}
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
@@ -219,6 +231,12 @@ services:
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/simple_auth_manager_passwords.json
       RUN_REMOTE: ${RUN_REMOTE}
       HOST_PROJECT_DIR: ${PWD}
+      REMOTE_SSH_HOST: ${REMOTE_SSH_HOST}
+      REMOTE_SSH_USER: ${REMOTE_SSH_USER}
+      REMOTE_MLFLOW_URI: ${REMOTE_MLFLOW_URI}
+      REMOTE_CODE_DIR: ${REMOTE_CODE_DIR}
+      REMOTE_DATA_DIR: ${REMOTE_DATA_DIR}
+      MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME}
 
 
     volumes:

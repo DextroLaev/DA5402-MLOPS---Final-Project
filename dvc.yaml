@@ -1,69 +1,44 @@
 # dvc.yaml
 stages:
   prepare_data:
-    foreach:
-      - lfw
-      - vggface2
-    do:
-      cmd: > 
-        docker run --rm
-          --network ${COMPOSE_NETWORK}
-          -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}
-          -e DATASET_NAME=${item}
-          -v $(pwd)/data:/app/data
-          -v $(pwd)/src:/app/src
-          trainer:latest
-          python src/prepare_data.py
-      deps:
-        - data/${item}
-        - src/config.py
-        - src/prepare_data.py
-      outs:
-        - data/${item}_baseline_stats.json
-        - data/${item}_manifest.json
-      metrics:
-        - data/${item}_data_metrics.json:
-            cache: false
+    cmd: bash scripts/prepare_data.sh ${prepare.dataset_name}
+    deps:
+      - data/${prepare.dataset_name}
+      - src/config.py
+      - src/prepare_data.py
+    outs:
+      - data/${prepare.dataset_name}_baseline_stats.json
+      - data/${prepare.dataset_name}_manifest.json
+      - data/${prepare.dataset_name}_data_metrics.json:
+          cache: false
+    # metrics:
+    #   - data/${prepare.dataset_name}_data_metrics.json:
+    #       cache: false
 
   train:
-    foreach:
-      - lfw
-      - vgg6face
-    do:
-      cmd: bash scripts/train.sh ${item} 
-      deps:
-        - data/${item}_manifest.json
-        - src/config.py
-        - src/dataloader.py
-        - src/model.py
-        - src/sweep_optuna.py
-        - src/train.py
-        - src/utils.py
-        - scripts/train.sh
-      params:
-        - train
-      outs:
-        - checkpoints/${item}_best_run.json
-      metrics:
-        - checkpoints/${item}_dvc_metrics.json:
-            cache: false
+    cmd: bash scripts/train.sh ${prepare.dataset_name}
+    deps:
+      - data/${prepare.dataset_name}_manifest.json
+      - data/${prepare.dataset_name}_data_metrics.json
+      - src/config.py
+      - src/dataloader.py
+      - src/model.py
+      - src/sweep_optuna.py
+      - src/train.py
+      - src/utils.py
+      - scripts/train.sh
+    params:
+      - train
+    outs:
+      - checkpoints/${prepare.dataset_name}_best_run.json
+    metrics:
+      - checkpoints/${prepare.dataset_name}_dvc_metrics.json:
+          cache: false
 
   register:
-    foreach:
-      - lfw
-      - vgg6face
-    do:
-      cmd: >
-        docker run --rm
-        --network ${COMPOSE_NETWORK}
-        -e MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI}
-        -e DATASET_NAME=${item}
-        -v $(pwd)/checkpoints:/app/checkpoints
-        -v $(pwd)/src:/app/src
-        trainer:latest
-        python src/register_model.py
-      deps:
-        - checkpoints/${item}_best_run.json
-        - src/register_model.py
-      outs:
-        - checkpoints/${item}_registered_version.txt
+    cmd: bash scripts/register.sh ${prepare.dataset_name}
+    deps:
+      - checkpoints/${prepare.dataset_name}_best_run.json
+      - src/register_model.py
+    outs:
+      - checkpoints/${prepare.dataset_name}_registered_version.txt
