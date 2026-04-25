@@ -112,9 +112,10 @@ services:
       - GF_PATHS_LOGS=/var/log/grafana
       - GF_SMTP_ENABLED=true
       - GF_SMTP_HOST=smtp.gmail.com:587
-      - GF_SMTP_USER=your@gmail.com
-      - GF_SMTP_PASSWORD=your_app_password
-      - GF_SMTP_FROM_ADDRESS=your@gmail.com
+      - GF_SMTP_USER=rajshekharrakshit123@gmail.com
+      - GF_SMTP_PASSWORD=wjhmjcserpmoexbv
+
+      - GF_SMTP_FROM_ADDRESS=rajshekharrakshit123@gmail.com
       - GF_SMTP_FROM_NAME=FaceRecognition Alerts
     volumes:
       - grafana_data:/var/lib/grafana

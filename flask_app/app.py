@@ -11,11 +11,10 @@ import requests as http_requests
 from PIL import Image
 from flask import Flask, Response, render_template, request, jsonify
 import mlflow
-import mlflow.pyfunc
 import mlflow.pytorch
-from model import build_model
 import time as _time
 import datetime
+from prometheus_client import Gauge
 
 # ── MediaPipe — neural-network face detection ─────────────────────────────────
 # Replaces Haar Cascade: handles extreme angles, low light, partial occlusion.
@@ -33,6 +32,17 @@ latency_sum = 0.0
 latency_count = 0
 
 _stop = threading.Event()
+
+misclassification_count = Gauge(
+    'face_misclassification_count',
+    'Number of pending misclassified faces in DB'
+)
+
+def update_misclassification_metric():
+    con = sqlite3.connect(DB_PATH)
+    count = con.execute("SELECT COUNT(*) FROM misclassified_faces").fetchone()[0]
+    con.close()
+    misclassification_count.set(count)
 
 def _record_recognition(latency_s: float, label: str):
     global recognitions_total, recognitions_today_total, _today_date, _unique_today_recognized,latency_sum,latency_count
@@ -289,6 +299,8 @@ def log_misclassification(true_name: str, predicted: str, score: float,
 
     if pending_count >= MISCLASSIFY_THRESHOLD:
         _trigger_retraining_dag()
+    
+    update_misclassification_metric()
 
 
 def _get_airflow_token() -> str:
