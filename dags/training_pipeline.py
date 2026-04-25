@@ -165,6 +165,7 @@ def check_should_train(**context) -> bool:
       - any other trigger (manual) → ALWAYS train
     """
     conf = context["dag_run"].conf or {}
+    
     triggered_by = conf.get("triggered_by", "schedule")
  
     if triggered_by == "misclassification_threshold":

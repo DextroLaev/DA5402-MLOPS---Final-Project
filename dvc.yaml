@@ -20,9 +20,9 @@ stages:
   train:
     foreach:
       - lfw
-      - vggface2
+      - vgg6face
     do:
-      cmd: DATASET_NAME=${item} python src/sweep_optuna.py
+      cmd: bash scripts/train.sh ${item} 
       deps:
         - data/${item}_manifest.json
         - src/config.py
@@ -31,6 +31,7 @@ stages:
         - src/sweep_optuna.py
         - src/train.py
         - src/utils.py
+        - scripts/train.sh
       params:
         - train
       outs:
@@ -42,7 +43,7 @@ stages:
   register:
     foreach:
       - lfw
-      - vggface2
+      - vgg6face
     do:
       cmd: DATASET_NAME=${item} python src/register_model.py
       deps:

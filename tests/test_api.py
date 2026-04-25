@@ -38,7 +38,7 @@ def client():
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
             test_db = f.name
 
-        import app as app_module
+        from flask_app import app as app_module
         app_module.DB_PATH = test_db
 
         init_db()

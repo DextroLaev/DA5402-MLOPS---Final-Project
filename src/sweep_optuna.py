@@ -29,15 +29,20 @@ import config
 from dataloader import get_dataloaders
 from model import build_model
 from train import train
+import yaml
+
+_params_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "params.yaml")
+with open(_params_path) as f:
+    _p = yaml.safe_load(f)["train"]
 
 
-N_TRIALS = int(os.environ.get("N_TRIALS", "5"))
-N_EPOCHS_PER_TRIAL = int(os.environ.get("N_EPOCHS_PER_TRIAL", "3"))
-LR_MIN = float(os.environ.get("LR_MIN", "1e-5"))
-LR_MAX = float(os.environ.get("LR_MAX", "1e-2"))
-MARGIN_MIN = float(os.environ.get("MARGIN_MIN", "0.2"))
-MARGIN_MAX = float(os.environ.get("MARGIN_MAX", "1.0"))
-MINING_CHOICES = os.environ.get("MINING_CHOICES", "semi,hard").split(",")
+N_TRIALS = int(os.environ.get("N_TRIALS",str(_p["n_trials"])))
+N_EPOCHS_PER_TRIAL = int(os.environ.get("N_EPOCHS_PER_TRIAL", str(_p["n_epochs_per_trial"])))
+LR_MIN = float(os.environ.get("LR_MIN",str(_p["lr_min"])))
+LR_MAX = float(os.environ.get("LR_MAX",str(_p["lr_max"])))
+MARGIN_MIN = float(os.environ.get("MARGIN_MIN",str(_p["margin_min"])))
+MARGIN_MAX = float(os.environ.get("MARGIN_MAX",str(_p["margin_max"])))
+MINING_CHOICES = os.environ.get("MINING_CHOICES",_p["mining_choices"]).split(",")
 TRIGGERED_BY = os.environ.get("TRIGGERED_BY", "schedule")
 MODEL_NAME = os.environ.get("MLFLOW_MODEL_NAME", "SiameseFaceRecognition")
 
@@ -146,9 +151,17 @@ def main():
         "val_loss": best.value,
         "params": best.params,
     }
-    with open(os.path.join(config.CHECKPOINT_DIR, "best_run.json"), "w") as f:
+    with open(os.path.join(config.CHECKPOINT_DIR, f"{config.DATASET_NAME}_best_run.json"), "w") as f:
         json.dump(out, f, indent=2)
     print(f"Wrote {config.CHECKPOINT_DIR}/best_run.json")
+
+    dvc_metrics = {
+        "val_loss": best.value,
+        "n_trials": N_TRIALS,
+        "best_trial": best.number,
+    }
+    with open(os.path.join(config.CHECKPOINT_DIR, f"{config.DATASET_NAME}_dvc_metrics.json"), "w") as f:
+        json.dump(dvc_metrics, f, indent=2)
 
 
 if __name__ == "__main__":
