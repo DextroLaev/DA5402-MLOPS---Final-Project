@@ -372,7 +372,7 @@ def re_embed_all_faces():
     log.info("[re_embed] Done re-embedding all faces.")
 
 # Misclassification helpers
-def log_misclassification(true_name, predicted, score,face_bgr):
+def log_misclassification(true_name, predicted, score,face_bgr=None):
     
     try:
         con = sqlite3.connect(DB_PATH)
