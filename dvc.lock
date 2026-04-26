@@ -192,30 +192,30 @@ stages:
           n_trials: 1
           n_epochs_per_trial: 30
           lr_min: 0.0001
-          lr_max: 0.0001
+          lr_max: 0.01
           margin_min: 0.2
           margin_max: 1
-          mining_choices: hard
-          batch_size: 128
+          mining_choices: semi
+          batch_size: 32
           embedding_dim: 128
           dropout_rate: 0.0
           warmup_epochs: 10
     outs:
     - path: checkpoints/lfw_best_run.json
       hash: md5
-      md5: c5bc5071c59b79cd7c5acb856e0bc3d9
-      size: 265
+      md5: e67e6a47cfea547cd316aa38667e5f0f
+      size: 281
     - path: checkpoints/lfw_dvc_metrics.json
       hash: md5
-      md5: 17eb7f5699906fee4f660c74761856be
-      size: 343
+      md5: 1767aeffca67c616eaf4cbf5f7251980
+      size: 357
   register:
     cmd: bash scripts/register.sh lfw
     deps:
     - path: checkpoints/lfw_best_run.json
       hash: md5
-      md5: c5bc5071c59b79cd7c5acb856e0bc3d9
-      size: 265
+      md5: e67e6a47cfea547cd316aa38667e5f0f
+      size: 281
     - path: src/register_model.py
       hash: md5
       md5: 5350ec9f137e19c3cbf4defc09fdf244
@@ -223,5 +223,5 @@ stages:
     outs:
     - path: checkpoints/lfw_registered_version.txt
       hash: md5
-      md5: dbbf8220893d497d403bb9cdf49db7a4
+      md5: fe9d26c3e620eeb69bd166c8be89fb8f
       size: 3
