@@ -92,6 +92,12 @@ def export_misclassified_data(**context):
     log.info(f"Exported {total} crops for {len(counts)} persons → {out_root}")
     context["ti"].xcom_push(key="export_total", value=total)
     context["ti"].xcom_push(key="triggered_by", value=triggered_by)
+    if total > 0:
+        con = sqlite3.connect(db_path)
+        con.execute("DELETE FROM misclassified_faces")
+        con.commit()
+        con.close()
+        log.info(f"Cleared misclassified_faces table after exporting {total} crops.")
     return {"exported": total}
 
 

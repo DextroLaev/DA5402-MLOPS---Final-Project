@@ -346,10 +346,11 @@ def _trigger_retraining_dag():
 
 
 def _mark_misclassifications_triggered():
-    con = sqlite3.connect(DB_PATH)
     con.execute("UPDATE misclassifications SET corrected=1 WHERE corrected=0")
+    con.execute("DELETE FROM misclassified_faces")  # ← add this line
     con.commit()
     con.close()
+    update_misclassification_metric()
 
 
 def get_misclassification_stats():

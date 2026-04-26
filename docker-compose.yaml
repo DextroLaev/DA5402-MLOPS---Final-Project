@@ -108,17 +108,17 @@ services:
       - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_PATHS_DATA=/var/lib/grafana
-      - GF_PATHS_LOGS=/var/log/grafana
       - GF_SMTP_ENABLED=true
       - GF_SMTP_HOST=smtp.gmail.com:587
       - GF_SMTP_USER=rajshekharrakshit123@gmail.com
-      - GF_SMTP_PASSWORD=wjhmjcserpmoexbv
-
+      - GF_SMTP_PASSWORD=wisbnncienqqbstk
       - GF_SMTP_FROM_ADDRESS=rajshekharrakshit123@gmail.com
-      - GF_SMTP_FROM_NAME=FaceRecognition Alerts
+      - GF_SMTP_FROM_NAME=Grafana Alerts
+      - GF_SMTP_SKIP_VERIFY=true
+      - GF_SMTP_STARTTLS_POLICY=MandatoryStartTLS
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/grafana.ini:/etc/grafana/grafana.ini
     depends_on:
       - prometheus
     restart: unless-stopped
