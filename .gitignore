@@ -1,8 +1,12 @@
 mlruns/
 mlartifacts/
 .db
-checkpoints/
 *.pth
 data/lfw
+logs/
 data/vgg6face
-!checkpoints/lfw_dvc_metrics.json
+data/registered_faces/
+data/*_baseline_stats.json
+data/*_manifest.json
+data/*_data_metrics.json
+checkpoints/best_run.json

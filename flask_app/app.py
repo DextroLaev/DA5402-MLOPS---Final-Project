@@ -404,11 +404,12 @@ def _trigger_retraining_dag():
 
 
 def _mark_misclassifications_triggered():
-    con = sqlite3.connect(DB_PATH)
-    con.execute("UPDATE misclassifications SET corrected=1 WHERE corrected=0")
-    con.execute("DELETE FROM misclassified_faces")
-    con.commit()
-    con.close()
+    # con = sqlite3.connect(DB_PATH)
+    # con.execute("UPDATE misclassifications SET corrected=1 WHERE corrected=0")
+    # con.execute("DELETE FROM misclassified_faces")
+    # con.commit()
+    # con.close()
+    print("[Misclassification] DAG triggered — keeping pending count until model is deployed.")
     update_misclassification_metric()
 
 

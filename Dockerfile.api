@@ -13,6 +13,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY flask_app/ ./flask_app/
 
+RUN useradd -m -u 50000 appuser && \
+    usermod -aG video appuser && \
+    chown -R 50000:0 /app
+
+USER appuser
+
 ENV PYTHONPATH=/app/src
 
 CMD ["python", "flask_app/app.py"]

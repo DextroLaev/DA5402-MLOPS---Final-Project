@@ -61,6 +61,8 @@ services:
       - ./data:/app/data
     depends_on:
       - mlflow
+    group_add:
+      - "44"
     restart: unless-stopped
     devices:
       - dev/video0:/dev/video0
@@ -77,7 +79,7 @@ services:
       RETRAIN_DAG_ID: face_recognition_pipeline
       AIRFLOW_USERNAME: "airflow"
       AIRFLOW_PASSWORD: "airflow"  
-      MISCLASSIFY_THRESHOLD: "1"
+      MISCLASSIFY_THRESHOLD: "2"
       MODEL_RELOAD_INTERVAL_SECS: "60"
       DB_PATH: /app/data/face_db.sqlite
       PYTHONUNBUFFERED: "1"
@@ -244,7 +246,6 @@ services:
       REMOTE_CODE_DIR: ${REMOTE_CODE_DIR}
       REMOTE_DATA_DIR: ${REMOTE_DATA_DIR}
       MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME}
-
 
     volumes:
       - ./dags:/opt/airflow/dags

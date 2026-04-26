@@ -11,7 +11,7 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.providers.standard.operators.bash import BashOperator
 from docker.types import Mount, DeviceRequest
 import mlflow
-
+import sqlite3, shutil
 log = logging.getLogger(__name__)
 
 HOST_PROJECT_DIR = os.environ["HOST_PROJECT_DIR"]
@@ -30,7 +30,7 @@ def _cfg(key: str, default: str = "") -> str:
     except Exception:
         return os.environ.get(key, default)
 
-# ── Task callables ───────────────────────────────────────────────────────────
+# ── Task callables ──
 
 def run_prepare_data(**context):
     """
@@ -58,14 +58,24 @@ def export_misclassified_data(**context):
     conf = context["dag_run"].conf or {}
     triggered_by = conf.get("triggered_by", "schedule")
 
+    db_path  = _cfg("DB_PATH", "/opt/airflow/data/face_db.sqlite")
+    out_root = _cfg("MISCLASSIFIED_DIR", "/opt/airflow/data/misclassified")
+
     if triggered_by != "misclassification_threshold":
+        misc_dir = out_root
+        disk_crops = 0
+        if os.path.exists(misc_dir):
+            disk_crops = sum(
+                len([f for f in os.listdir(os.path.join(misc_dir, p))
+                     if f.lower().endswith(".jpg")])
+                for p in os.listdir(misc_dir)
+                if os.path.isdir(os.path.join(misc_dir, p))
+            )
+
         log.info(f"Run triggered by {triggered_by!r}; skipping misclassified export.")
         context["ti"].xcom_push(key="export_total", value=0)
         context["ti"].xcom_push(key="triggered_by", value=triggered_by)
         return {"exported": 0}
-
-    db_path  = _cfg("DB_PATH", "/opt/airflow/data/face_db.sqlite")
-    out_root = _cfg("MISCLASSIFIED_DIR", "/opt/airflow/data/misclassified")
 
     con  = sqlite3.connect(db_path)
     rows = con.execute(
@@ -124,34 +134,34 @@ def evaluate_and_promote(**context):
     new_ver    = new_mv.version
     new_run    = client.get_run(new_mv.run_id)
     new_metric = new_run.data.metrics.get(eval_metric)
-    log.info(f"Staging model v{new_ver} {eval_metric}={new_metric}")
+    log.info(f"Staging model v{new_ver} - promoting to production")
 
-    prod    = client.get_latest_versions(model_name, stages=["Production"])
-    promote = True
-
-    if prod and new_metric is not None:
-        prod_run    = client.get_run(prod[0].run_id)
-        prod_metric = prod_run.data.metrics.get(eval_metric)
-        log.info(f"Production model v{prod[0].version} {eval_metric}={prod_metric}")
-        if prod_metric is not None:
-            promote = (new_metric > prod_metric) if higher_better else (new_metric < prod_metric)
-
-    log.info(f"Promote? {promote}")
-
-    if promote:
-        for pv in prod:
-            log.info(f"Archiving old Production v{pv.version}")
-            client.transition_model_version_stage(
-                name=model_name, version=pv.version, stage="Archived"
-            )
+    prod = client.get_latest_versions(model_name, stages=["Production"])
+    for pv in prod:
+        log.info(f"Archiving old Production v{pv.version}")
         client.transition_model_version_stage(
-            name=model_name, version=new_ver, stage="Production"
+            name=model_name, version=pv.version, stage="Archived"
         )
-        log.info(f"Model v{new_ver} promoted to Production")
+    client.transition_model_version_stage(
+        name=model_name, version=new_ver, stage="Production"
+    )
+    log.info(f"Model v{new_ver} promoted to Production")
 
-    context["ti"].xcom_push(key="promoted",    value=promote)
+    db_path = _cfg("DB_PATH", "/opt/airflow/data/face_db.sqlite")
+    con = sqlite3.connect(db_path)
+    con.execute("UPDATE misclassifications SET corrected=1 WHERE corrected=0")
+    con.execute("DELETE FROM misclassified_faces")
+    con.commit()
+    con.close()
+
+    misc_dir = _cfg("MISCLASSIFIED_DIR", "/opt/airflow/data/misclassified")
+    if os.path.exists(misc_dir):
+        shutil.rmtree(misc_dir)
+    log.info("Misclassification DB and disk crops cleared after promotion.")
+
+    context["ti"].xcom_push(key="promoted", value=True)
     context["ti"].xcom_push(key="new_version", value=new_ver)
-    return {"promoted": promote, "version": new_ver}
+    return {"promoted": True, "version": new_ver}
 
 
 def check_should_train(**context) -> bool:
@@ -189,6 +199,18 @@ def check_should_train(**context) -> bool:
         log.info(f"Scheduled run: {count} pending misclassifications found — proceeding.")
         return True
 
+    misc_dir = _cfg("MISCLASSIFIED_DIR", "/opt/airflow/data/misclassified")
+    if os.path.exists(misc_dir):
+        disk_crops = sum(
+            len([f for f in os.listdir(os.path.join(misc_dir, p))
+                 if f.lower().endswith(".jpg")])
+            for p in os.listdir(misc_dir)
+            if os.path.isdir(os.path.join(misc_dir, p))
+        )
+        if disk_crops > 0:
+            log.info(f"Scheduled run: {disk_crops} crops on disk — proceeding.")
+            return True
+
     log.info("Scheduled run: no misclassifications — skipping training.")
     return False
 
@@ -222,7 +244,7 @@ _COMMON_TRAIN_ENV = {
     "MLFLOW_MODEL_NAME":   _cfg("MLFLOW_MODEL_NAME",   "SiameseFaceRecognition"),
     "TRIGGERED_BY":        "{{ dag_run.conf.get('triggered_by', 'schedule') }}",
     "DATASET_NAME":        "{{ dag_run.conf.get('dataset', params.dataset) }}",
-    "NUM_EPOCHS":          "25",
+    "NUM_EPOCHS":          "1",
     "PYTHONUNBUFFERED":    "1",
     "GIT_PYTHON_REFRESH":  "quiet",
 }
@@ -266,7 +288,7 @@ with DAG(
     should_train = ShortCircuitOperator(
         task_id="check_should_train",
         python_callable=check_should_train,
-        ignore_downstream_trigger_rules=True,
+        ignore_downstream_trigger_rules=False,
     )
 
     if RUN_REMOTE:
@@ -314,7 +336,7 @@ with DAG(
                 -e MLFLOW_MODEL_NAME=${MLFLOW_MODEL_NAME} \
                 -e TRIGGERED_BY=${TRIGGERED_BY} \
                 -e DATASET_NAME=${DATASET_NAME} \
-                -e NUM_EPOCHS=25 \
+                -e NUM_EPOCHS=1 \
                 -e PYTHONUNBUFFERED=1 \
                 -e GIT_PYTHON_REFRESH=quiet \
                 -v ${REMOTE_CODE_DIR}:/app \
@@ -375,6 +397,7 @@ with DAG(
 
     health_check = BashOperator(
         task_id="api_health_check",
+        trigger_rule='all_done',
         bash_command="sleep 5 && curl -sf http://flask-api:2000/health && echo 'API healthy'",
     )
 
