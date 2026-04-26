@@ -166,7 +166,7 @@ def init_db():
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             label     TEXT    NOT NULL UNIQUE,
             embedding BLOB    NOT NULL,
-            count     INTEGER NOT NULL DEFAULT 1
+            count     INTEGER NOT NULL DEFAULT 1,
             face_dir  TEXT
         )
     """)
