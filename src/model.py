@@ -4,6 +4,14 @@ import torch.nn.functional as F
 from torchvision import models
 from torchvision.models import ResNet50_Weights
 import config
+import logging
+
+log = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 class SiameseEncoder(nn.Module):
     def __init__(self):
@@ -55,5 +63,5 @@ def build_model():
     _init_head(model)
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f'Resnet50 Model | total params: {total_params/1e6:.1f}M  trainable={trainable_params/1e6:.1f}M')
+    log.info(f'Resnet50 Model | total params: {total_params/1e6:.1f}M  trainable={trainable_params/1e6:.1f}M')
     return model

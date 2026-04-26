@@ -2,3 +2,5 @@
 /vgg6face
 /manifest.json
 /baseline_stats.json
+/lfw_baseline_stats.json
+/lfw_manifest.json

@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from config import MARGIN, TRIPLET_MINING
 
-
 class TripletLoss(nn.Module):
     def __init__(self, margin=MARGIN, mining=TRIPLET_MINING):
         super().__init__()

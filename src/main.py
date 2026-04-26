@@ -1,14 +1,21 @@
 import os
-import torch
 import config
+import logging
+
+log = logging.getLogger(__name__)
+
+import torch
+import logging
 from dataloader import get_dataloaders
 from model import build_model
 from train import train
 import json
 import yaml
-
 import mlflow
 from mlflow.tracking import MlflowClient
+
+
+
 
 def _load_best_params_from_json():
     """
@@ -17,13 +24,13 @@ def _load_best_params_from_json():
     """
     path = os.path.join(config.CHECKPOINT_DIR, f"{config.DATASET_NAME}_best_run.json")
     if not os.path.exists(path):
-        print(f"[main] No sweep JSON found at {path} — will use params.yaml / config defaults.")
+        log.warning(f"[main] No sweep JSON found at {path} — will use params.yaml / config defaults.")
         return {}
     with open(path) as f:
         data = json.load(f)
     params = data.get("params", {})
     sweep_id = data.get("sweep_id", "unknown")
-    print(f"[main] Loaded best params from sweep '{sweep_id}': {params}")
+    log.info(f"[main] Loaded best params from sweep '{sweep_id}': {params}")
     return params
 
 def _load_params_from_yaml():
@@ -51,8 +58,8 @@ def _load_params_from_yaml():
 
 def resolve_params() -> dict:
     """
-    Merge param sources with priority:
-      sweep JSON  >  params.yaml  >  config defaults
+        Merge param sources with priority:
+        sweep JSON  >  params.yaml  >  config defaults
     """
     yaml_params  = _load_params_from_yaml()
     sweep_params = _load_best_params_from_json()
@@ -73,7 +80,7 @@ def apply_params(params: dict) -> None:
     config.MARGIN = float(params["margin"])
     config.TRIPLET_MINING = str(params["triplet_mining"])
     config.WARMUP_EPOCHS = int(params["warmup_epochs"])
-    print(
+    log.info(
         f"[main] Active params - lr={config.LEARNING_RATE:.2e}  "
         f"margin={config.MARGIN:.3f}  mining={config.TRIPLET_MINING}  "
         f"warmup={config.WARMUP_EPOCHS}"
@@ -95,20 +102,20 @@ def load_production_weights(model, mlflow_uri: str, model_name: str):
         return model
 
     uri = f"models:/{model_name}/Production"
-    print(f"[main] Loading Production weights from {uri} (v{prod_versions[0].version})")
+    log.info(f"[main] Loading Production weights from {uri} (v{prod_versions[0].version})")
     prod_model = mlflow.pytorch.load_model(uri, map_location="cpu")
     missing, unexpected = model.load_state_dict(prod_model.state_dict(), strict=False)
     if missing or unexpected:
-        print(f"[main] missing keys  : {missing}")
-        print(f"[main] unexpected keys: {unexpected}")
-    print("[main] Production weights loaded - finetuning mode active.")
+        log.warning(f"[main] missing keys  : {missing}")
+        log.warning(f"[main] unexpected keys: {unexpected}")
+    log.info("[main] Production weights loaded - finetuning mode active.")
     return model
  
 
 if __name__ == '__main__':
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    log.info(f"Using device: {device}")
 
     params = resolve_params()
     apply_params(params)
@@ -128,13 +135,13 @@ if __name__ == '__main__':
         model = load_production_weights(model, mlflow_uri, model_name)
     else:
         reason = "no MLFLOW_TRACKING_URI" if not mlflow_uri else f"triggered_by={triggered_by!r}"
-        print(f"[main] Skipping production-weight load ({reason}) — cold start.")
+        log.info(f"[main] Skipping production-weight load ({reason}) - cold start.")
  
     resume_path = os.path.join(config.CHECKPOINT_DIR, config.LAST_CKPT_NAME)
     resume_path = resume_path if os.path.exists(resume_path) else None
  
  
-    print("[main] Training started …")
+    log.info("[main] Training started …")
     best_val_loss, run_id = train(
         model, train_loader, val_loader, device, resume_path=resume_path
     )
@@ -154,12 +161,13 @@ if __name__ == '__main__':
     with open(best_run_path, "w") as f:
         json.dump(best_run, f, indent=2)
  
-    mlflow_metrics: dict = {}
+    mlflow_metrics = {}
+    
     if mlflow_uri:
         try:
             mlflow_metrics = mlflow.get_run(run_id).data.metrics
         except Exception as exc:
-            print(f"[main] Could not fetch MLflow metrics for run {run_id}: {exc}")
+            log.error(f"[main] Could not fetch MLflow metrics for run {run_id}: {exc}",exc_info=True)
  
     data_metrics_path = os.path.join(
         config.DATA_DIR, f"{config.DATASET_NAME}_data_metrics.json"
@@ -204,5 +212,5 @@ if __name__ == '__main__':
     with open(dvc_path, "w") as f:
         json.dump(dvc_metrics, f, indent=2)
  
-    print(f"[main] Done.  val_loss={best_val_loss:.4f}  run_id={run_id}")
+    log.info(f"[main] Done.  val_loss={best_val_loss:.4f}  run_id={run_id}")
  

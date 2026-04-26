@@ -5,7 +5,14 @@ import torch
 from torch.utils.data import Dataset, DataLoader, Sampler
 import torchvision.transforms as T
 import config
+import logging
 
+log = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 def get_transform(split="train"):
     if split == "train":
@@ -44,7 +51,7 @@ def merge_misclassified_into_train(train_map, misclassified_path):
     Called after split_identities() so crops never leak into val or test.
     """
     if not misclassified_path or not os.path.exists(misclassified_path):
-        print("[dataloader] No misclassified data found — training on LFW only.")
+        log.info("[dataloader] No misclassified data found — training on LFW only.")
         return train_map
  
     merged_identities, merged_images = 0, 0
@@ -65,7 +72,7 @@ def merge_misclassified_into_train(train_map, misclassified_path):
         merged_identities += 1
         merged_images += len(imgs)
  
-    print(f"[dataloader] Merged {merged_images} misclassified crops "
+    log.info(f"[dataloader] Merged {merged_images} misclassified crops "
           f"across {merged_identities} identities into train set only.")
     return train_map
 
@@ -176,16 +183,16 @@ def get_dataloaders(batch_size=64, k=4, n_test_pairs=2000):
     p = batch_size // k
 
     identity_map = scan_lfw(config.RAW_DIR)
-    print(f"Found {len(identity_map)} identities")
+    log.info(f"Found {len(identity_map)} identities")
 
     train_map, val_map, test_map = split_identities(
         identity_map, config.TRAIN_RATIO, config.VAL_RATIO, config.SEED
     )
-    print(f"train={len(train_map)}  val={len(val_map)}  test={len(test_map)}")
+    log.info(f"train={len(train_map)}  val={len(val_map)}  test={len(test_map)}")
 
     misclassified_path = os.path.join(config.DATA_DIR, "misclassified")
     train_map = merge_misclassified_into_train(train_map, misclassified_path)
-    print(f"After merge  — train={len(train_map)}  val={len(val_map)}  test={len(test_map)}")
+    log.info(f"After merge  — train={len(train_map)}  val={len(val_map)}  test={len(test_map)}")
  
 
     train_ds = LFWIdentityDataset(train_map, transform=get_transform("train"))
@@ -209,5 +216,5 @@ def get_dataloaders(batch_size=64, k=4, n_test_pairs=2000):
         test_ds, batch_size=batch_size, shuffle=False, **common
     )
 
-    print(f"Batch size: {batch_size}  (P={p} identities x K={k} images each)")
+    log.info(f"Batch size: {batch_size}  (P={p} identities x K={k} images each)")
     return train_loader, val_loader, test_loader

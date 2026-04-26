@@ -9,6 +9,9 @@ import config
 from utils import TripletLoss
 import mlflow 
 import mlflow.pytorch
+import logging
+
+log = logging.getLogger(__name__)
 
 
 WARMUP_EPOCHS = config.WARMUP_EPOCHS
@@ -37,9 +40,14 @@ def train_epoch(model, loader, criterion, optimizer, device):
             del loss, embeddings
             continue
 
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-        optimizer.step()
+        try:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            optimizer.step()
+        except RuntimeError as exc:
+            log.error("Backward pass failed at step %d: %s", steps, exc)
+            optimizer.zero_grad()
+            continue
 
         tot_loss += loss.item()
         tot_acc  += batch_accuracy(embeddings.detach(), labels)
@@ -72,7 +80,9 @@ def val_epoch(model, loader, criterion, device):
 
 @torch.no_grad()
 def eval_mode_accuracy(model, loader, device):
-    """Clean, eval-mode accuracy over a loader (no dropout, BN in eval stats)."""
+    """
+        Clean, eval-mode accuracy over a loader (no dropout, BN in eval stats).
+    """
     was_training = model.training
     model.eval()
     tot_acc, steps = 0.0, 0
@@ -121,7 +131,7 @@ def load_checkpoint(path, model, optimizer, scheduler, device):
     )
 
 def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nested=False):
-    # mlflow.set_tracking_uri('http://mlflow:5000')
+
     mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
     mlflow.set_experiment('face-recognition-siamese')
 
@@ -163,14 +173,14 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
                 resume_path, model, optimizer, scheduler, device
             )
             start_epoch += 1
-            print(f"Resumed from epoch {start_epoch - 1}, phase {phase}")
+            log.info(f"Resumed from epoch {start_epoch - 1}, phase {phase}")
     
         model.to(device)
     
         for epoch in range(start_epoch, config.NUM_EPOCHS + 1):
     
             if epoch == WARMUP_EPOCHS + 1 and phase == 1:
-                print("Switching to phase 2 - unfreezing backbone")
+                log.info("Switching to phase 2 - unfreezing backbone")
                 for p in model.encoder.backbone.parameters():
                     p.requires_grad = True
                 phase = 2
@@ -188,7 +198,7 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
             history["val_loss"].append(vl_loss)
             history["val_acc"].append(vl_acc)
     
-            print(
+            log.info(
                 f"[phase {phase}] Epoch {epoch:03d}/{config.NUM_EPOCHS} | "
                 f"train loss={tr_loss:.4f} train_acc={tr_acc*100:.1f}% | "
                 f"val loss={vl_loss:.4f} val_acc={vl_acc*100:.1f}% | "
@@ -206,7 +216,7 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
             if vl_loss < best_val_loss:
                 best_val_loss = vl_loss
                 save_checkpoint(model, optimizer, scheduler, epoch, phase, best_val_loss, history, tag="best")
-                print(f"Best model saved with val loss={vl_loss:.4f}")
+                log.info(f"Best model saved with val loss={vl_loss:.4f}")
 
         best_ckpt_path = os.path.join(config.CHECKPOINT_DIR, config.BEST_CKPT_NAME)
         if os.path.exists(best_ckpt_path):
@@ -220,13 +230,16 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
         with open(os.path.join(config.LOG_DIR, "history.json"), "w") as f:
             json.dump(history, f, indent=2)
 
-        mlflow.log_artifact(os.path.join(config.LOG_DIR, "history.json"))
+        try:
+            mlflow.log_artifact(os.path.join(config.LOG_DIR, "history.json"))
+        except Exception:
+            log.warning("Could not log history artifact to MLflow", exc_info=True)
 
         # Save run ID so register_model.py can find it
         with open(os.path.join(config.LOG_DIR, "mlflow_run_id.txt"), "w") as f:
             f.write(run.info.run_id)
 
-        print(f"Training done. Best val loss: {best_val_loss:.4f}")
-        print(f"MLflow run ID: {run.info.run_id}")
+        log.info(f"Training done. Best val loss: {best_val_loss:.4f}")
+        log.info(f"MLflow run ID: {run.info.run_id}")
 
         return best_val_loss, run.info.run_id

@@ -22,12 +22,18 @@ import numpy as np
 from PIL import Image
 import torchvision.transforms as T
 
+
 # Allow running from repo root or from src/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+
+import logging
 import config
 from dataloader import scan_lfw, split_identities, merge_misclassified_into_train
 
-# ── Config ────────────────────────────────────────────────────────────────────
+log = logging.getLogger(__name__)
+
+
+# --- Config ------
 TRAIN_RATIO = float(os.environ.get("TRAIN_RATIO", config.TRAIN_RATIO))
 VAL_RATIO = float(os.environ.get("VAL_RATIO",config.VAL_RATIO))
 SEED = int(os.environ.get("SEED",config.SEED))
@@ -78,27 +84,27 @@ def validate_dataset(raw_dir: str, min_images: int) -> dict:
             corrupt.append((path, str(e)))
 
     if corrupt:
-        print(f"[prepare] WARNING: {len(corrupt)} potentially corrupt images found:")
+        log.warning(f"[prepare] WARNING: {len(corrupt)} potentially corrupt images found:")
         for path, err in corrupt[:5]:
             print(f"  {path}: {err}")
 
-    print(f"[prepare] Validation passed: {len(identity_map)} identities, "
+    log.info(f"[prepare] Validation passed: {len(identity_map)} identities, "
           f"{len(all_paths)} images, {len(corrupt)} suspect files")
 
     return identity_map
 
 
-# ── Step 2: Compute baseline statistics ───────────────────────────────────────
+# -- Step 2: Compute baseline statistics -----------
 def compute_baseline_stats(identity_map: dict, split_name: str, sample_size: int = 500) -> dict:
     """
-    Compute per-split pixel statistics for drift detection.
-    Samples up to `sample_size` images — full scan would be too slow.
-    
-    These baselines are saved to data/baseline_stats.json and compared
-    against incoming data distributions during monitoring.
+        Compute per-split pixel statistics for drift detection.
+        Samples up to `sample_size` images — full scan would be too slow.
+        
+        These baselines are saved to data/baseline_stats.json and compared
+        against incoming data distributions during monitoring.
     """
     all_paths = [p for paths in identity_map.values() for p in paths]
-    sampled   = random.Random(SEED).sample(all_paths, min(sample_size, len(all_paths)))
+    sampled = random.Random(SEED).sample(all_paths, min(sample_size, len(all_paths)))
 
     means, stds = [], []
     for path in sampled:
@@ -126,7 +132,7 @@ def compute_baseline_stats(identity_map: dict, split_name: str, sample_size: int
     }
 
 
-# ── Step 3: Write manifest ────────────────────────────────────────────────────
+# -- Step 3: Write manifest -------------
 def write_manifest(train_map, val_map, test_map, misclassified_counts: dict) -> dict:
     manifest = {
         "dataset":               config.DATASET_NAME,
@@ -141,13 +147,17 @@ def write_manifest(train_map, val_map, test_map, misclassified_counts: dict) -> 
         "test_images":           sum(len(v) for v in test_map.values()),
         "misclassified_merged":  misclassified_counts,
     }
-    with open(MANIFEST_PATH, "w") as f:
-        json.dump(manifest, f, indent=2)
-    print(f"[prepare] Manifest written to {MANIFEST_PATH}")
+    try:
+        with open(MANIFEST_PATH, "w") as f:
+            json.dump(manifest, f, indent=2)
+    except OSError as exc:
+        log.error("Failed to write manifest to %s", MANIFEST_PATH, exc_info=True)
+        raise
+    log.info("[prepare] Manifest written to %s", MANIFEST_PATH)
     return manifest
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# -- Main --
 def main():
     os.makedirs(config.DATA_DIR, exist_ok=True)
 
@@ -158,7 +168,7 @@ def main():
     train_map, val_map, test_map = split_identities(
         identity_map, TRAIN_RATIO, VAL_RATIO, SEED
     )
-    print(f"[prepare] Split: train={len(train_map)} val={len(val_map)} test={len(test_map)}")
+    log.info(f"[prepare] Split: train={len(train_map)} val={len(val_map)} test={len(test_map)}")
 
     # 3. Merge misclassified crops into train only
     misclassified_path = os.path.join(config.DATA_DIR, "misclassified")
@@ -176,7 +186,7 @@ def main():
                 ])
 
     # 4. Compute baseline statistics (drift detection baselines)
-    print("[prepare] Computing baseline statistics (this may take a moment)...")
+    log.info("[prepare] Computing baseline statistics (this may take a moment)...")
     baseline = {
         "train": compute_baseline_stats(train_map, "train"),
         "val":   compute_baseline_stats(val_map,   "val"),
@@ -184,7 +194,7 @@ def main():
     }
     with open(BASELINE_PATH, "w") as f:
         json.dump(baseline, f, indent=2)
-    print(f"[prepare] Baseline stats written to {BASELINE_PATH}")
+    log.info(f"[prepare] Baseline stats written to {BASELINE_PATH}")
 
     # 5. Write manifest
     manifest = write_manifest(train_map, val_map, test_map, misc_counts)
@@ -201,11 +211,11 @@ def main():
     with open(DATA_METRICS_PATH, "w") as f:
         json.dump(data_metrics, f, indent=2)
 
-    print("\n[prepare] ✓ Data preparation complete.")
-    print(f"  Train : {manifest['train_identities']} identities / {manifest['train_images']} images")
-    print(f"  Val   : {manifest['val_identities']} identities / {manifest['val_images']} images")
-    print(f"  Test  : {manifest['test_identities']} identities / {manifest['test_images']} images")
-    print(f"  Misc  : {sum(misc_counts.values())} crops merged across {len(misc_counts)} identities")
+    log.info("\n[prepare] ✓ Data preparation complete.")
+    log.info(f"  Train : {manifest['train_identities']} identities / {manifest['train_images']} images")
+    log.info(f"  Val   : {manifest['val_identities']} identities / {manifest['val_images']} images")
+    log.info(f"  Test  : {manifest['test_identities']} identities / {manifest['test_images']} images")
+    log.info(f"  Misc  : {sum(misc_counts.values())} crops merged across {len(misc_counts)} identities")
 
 
 if __name__ == "__main__":

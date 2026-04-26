@@ -44,7 +44,7 @@ def run_prepare_data(**context):
     )
     log.info(result.stdout)
     if result.returncode != 0:
-        log.error(result.stderr)
+        log.error(result.stderr,exc_info=True)
         raise RuntimeError(f"prepare_data.py failed:\n{result.stderr}")
     log.info("Data preparation complete.")
 

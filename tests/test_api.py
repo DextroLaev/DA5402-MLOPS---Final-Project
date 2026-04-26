@@ -12,6 +12,8 @@ import tempfile
 import pytest
 import numpy as np
 from flask_app import app, init_db
+import unittest.mock as mock
+
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "flask_app"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -26,7 +28,6 @@ os.environ["MISCLASSIFY_THRESHOLD"]= "5"
 def client():
     """Create a Flask test client with a fresh in-memory DB."""
     # Patch out the model-loading and camera at import time
-    import unittest.mock as mock
 
     with mock.patch("app.load_best_model_from_mlflow"), \
          mock.patch("app.threading.Thread"), \

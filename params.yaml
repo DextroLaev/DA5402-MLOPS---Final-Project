@@ -7,19 +7,19 @@
 # Commit this file to git. DVC will detect changes and invalidate the cache.
 
 prepare:
-  train_ratio: 0.70
+  train_ratio: 0.80
   val_ratio: 0.15
   seed: 42
   min_images_per_identity: 2
-  dataset_name: lfw
+  dataset_name: vgg6face
 
 train:
   n_trials: 1
-  n_epochs_per_trial: 50
-  lr_min: 1.0e-5
+  n_epochs_per_trial: 100
+  lr_min: 1.0e-4
   lr_max: 1.0e-2
   margin_min: 0.2
-  margin_max: 1.0
+  margin_max: 1
   mining_choices: "semi"
   batch_size: 32
   embedding_dim: 128
@@ -28,5 +28,5 @@ train:
 
 inference:
   threshold: 0.8
-  misclassify_threshold: 1
+  misclassify_threshold: 2
   model_reload_interval_secs: 60

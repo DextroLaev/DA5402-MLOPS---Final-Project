@@ -15,11 +15,24 @@ import mlflow.pytorch
 import time as _time
 import datetime
 from prometheus_client import Gauge,REGISTRY
-
-# ── MediaPipe — neural-network face detection ─────────────────────────────────
-# Replaces Haar Cascade: handles extreme angles, low light, partial occlusion.
 import mediapipe as mp
+import logging
+import shutil
+import datetime
 
+# -- Logging Code --
+
+log = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+# --------------
+
+# metadata needed for application ---
+ 
 _mp_face = mp.solutions.face_detection
 recognitions_total        = 0
 recognitions_today_total  = 0
@@ -30,8 +43,11 @@ _today_date_reg           = None
 _today_date = None
 latency_sum = 0.0
 latency_count = 0
-
 _stop = threading.Event()
+
+# -----------------------------------
+
+# Gauge for showing grafana info---
 
 def _get_or_create_gauge(name, description):
     if name in REGISTRY._names_to_collectors:
@@ -43,13 +59,23 @@ misclassification_count = _get_or_create_gauge(
     'Number of pending misclassified faces in DB'
 )
 
+# ------------------------------------
+
+# Custom Function defined for interacting with DataBase
+
 def update_misclassification_metric():
+    '''
+        Update Gaude with misclassification counts
+    '''
     con = sqlite3.connect(DB_PATH)
     count = con.execute("SELECT COUNT(*) FROM misclassified_faces").fetchone()[0]
     con.close()
     misclassification_count.set(count)
 
 def _record_recognition(latency_s: float, label: str):
+    '''
+        Collects the recognition count (day wise) to show in grafana
+    '''
     global recognitions_total, recognitions_today_total, _today_date, _unique_today_recognized,latency_sum,latency_count
 
     today = datetime.datetime.utcnow().date()
@@ -65,9 +91,10 @@ def _record_recognition(latency_s: float, label: str):
     latency_count += 1
  
 def _record_registration():
+    '''
+        Collect the total registration count ( day wise)
+    '''
     global _registrations_today, _today_date_reg
-
-    import datetime
     today = datetime.datetime.utcnow().date()
     if today != _today_date_reg:
         _registrations_today = 0
@@ -76,13 +103,18 @@ def _record_registration():
     _registrations_today += 1
 
 def _people_registered():
-    import sqlite3
+    '''
+        returns total number of people registered
+    '''
     con = sqlite3.connect(DB_PATH)
     n = con.execute("SELECT COUNT(*) FROM faces").fetchone()[0]
     con.close()
     return n
 
 def _latency_histogram_lines():
+    '''
+        Custom function for visulization
+    '''
     lines = []
     for le in _BUCKETS:
         le_s = "+Inf" if le == float("inf") else str(le)
@@ -104,7 +136,7 @@ def _handle_signal(sig, frame):
 signal.signal(signal.SIGINT,  _handle_signal)
 signal.signal(signal.SIGTERM, _handle_signal)
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# -- Config --
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DB_PATH = os.environ.get("DB_PATH", "face_db.sqlite")
 THRESHOLD = float(os.environ.get("THRESHOLD", "0.5"))
@@ -120,7 +152,7 @@ MP_MIN_DETECTION_CONF    = float(os.environ.get("MP_MIN_DETECTION_CONF", "0.4"))
 MP_BBOX_PAD              = float(os.environ.get("MP_BBOX_PAD", "0.20"))
 
 REGISTERED_FACES_DIR = os.path.join(os.path.dirname(DB_PATH), "registered_faces")
-
+# ---------------
 
 INFER_TRANSFORM = T.Compose([
     T.Resize(256),
@@ -132,12 +164,12 @@ INFER_TRANSFORM = T.Compose([
 
 app = Flask(__name__)
 
-# ── Metrics counters (Prometheus-compatible) ──────────────────────────────────
+# - Metrics counters (Prometheus-compatible)
 request_count = 0
 error_count   = 0
 start_time    = time.time()
 
-# ── Global state ──────────────────────────────────────────────────────────────
+# - Global state
 model          = None
 model_version  = None   # tracks which MLflow model version is loaded
 cap            = None
@@ -158,7 +190,7 @@ g_state = {
     '_last_face_crop':None,
 }
 
-# ── Database ──────────────────────────────────────────────────────────────────
+# Database functions
 def init_db():
     con = sqlite3.connect(DB_PATH)
     con.execute("""
@@ -194,14 +226,13 @@ def init_db():
     try:
         con.execute("ALTER TABLE faces ADD COLUMN face_dir TEXT")
     except sqlite3.OperationalError:
-        # column exists
         pass
     
     con.commit()
     con.close()
 
 
-# ─── Face DB helpers ──────────────────────────────────────────────────────────
+# Face DB helpers 
 def db_register(embedding,name,face_bgr):
     emb_bytes = embedding.astype(np.float32).tobytes()
 
@@ -212,44 +243,59 @@ def db_register(embedding,name,face_bgr):
         fname = os.path.join(face_dir, f"{int(time.time() * 1000)}.jpg")
         cv2.imwrite(fname, face_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
  
-    con = sqlite3.connect(DB_PATH)
-    row = con.execute("SELECT embedding, count FROM faces WHERE label=?", (name,)).fetchone()
-
-    row = con.execute("SELECT embedding, count FROM faces WHERE label=?", (name,)).fetchone()
-    if row:
-        old_emb = np.frombuffer(row[0], dtype=np.float32)
-        count   = row[1]
-        new_emb = ((old_emb * count + embedding) / (count + 1)).astype(np.float32)
-        con.execute(
-            "UPDATE faces SET embedding=?, count=? WHERE label=?",
-            (new_emb.tobytes(), count + 1, name)
-        )
-    else:
-        con.execute(
-            "INSERT INTO faces (label, embedding, count,face_dir) VALUES (?,?,1,?)",
-            (name, emb_bytes,face_dir)
-        )
-    con.commit()
-    con.close()
+    try:
+        con = sqlite3.connect(DB_PATH)
+        row = con.execute("SELECT embedding, count FROM faces WHERE label=?", (name,)).fetchone()
+        if row:
+            old_emb = np.frombuffer(row[0], dtype=np.float32)
+            count   = row[1]
+            new_emb = ((old_emb * count + embedding) / (count + 1)).astype(np.float32)
+            con.execute(
+                "UPDATE faces SET embedding=?, count=? WHERE label=?",
+                (new_emb.tobytes(), count + 1, name)
+            )
+        else:
+            con.execute(
+                "INSERT INTO faces (label, embedding, count, face_dir) VALUES (?,?,1,?)",
+                (name, emb_bytes, face_dir)
+            )
+        con.commit()
+    except sqlite3.Error as exc:
+        log.error("db_register: DB write failed for label=%s", name, exc_info=True)
+        raise
+    finally:
+        con.close()
 
 
 def db_recognize(embedding: np.ndarray):
-    con  = sqlite3.connect(DB_PATH)
-    rows = con.execute("SELECT label, embedding FROM faces").fetchall()
-    con.close()
+    """
+        Match embedding against all registered faces. Returns (label, score).
+    """
 
+    try:
+        con  = sqlite3.connect(DB_PATH)
+        rows = con.execute("SELECT label, embedding FROM faces").fetchall()
+        con.close()
+    except sqlite3.Error as exc:
+        log.error("db_recognize: DB read failed", exc_info=True)
+        return "Unknown", -1.0
+ 
     if not rows:
         return "No faces registered yet", -1.0
-
+ 
     query = embedding / (np.linalg.norm(embedding) + 1e-9)
     best_label, best_score = "Unknown", -1.0
     for label, emb_blob in rows:
-        db_emb = np.frombuffer(emb_blob, dtype=np.float32)
-        db_emb = db_emb / (np.linalg.norm(db_emb) + 1e-9)
-        score  = float(np.dot(query, db_emb))
-        if score > best_score:
-            best_score, best_label = score, label
-
+        try:
+            db_emb = np.frombuffer(emb_blob, dtype=np.float32)
+            db_emb = db_emb / (np.linalg.norm(db_emb) + 1e-9)
+            score  = float(np.dot(query, db_emb))
+            if score > best_score:
+                best_score, best_label = score, label
+        except Exception:
+            log.warning("db_recognize: skipping corrupt embedding for label=%s", label)
+            continue
+ 
     if best_score < THRESHOLD:
         return "Unknown", best_score
     return best_label, best_score
@@ -269,13 +315,12 @@ def db_delete_person(name: str):
     con.close()
     face_dir = os.path.join(REGISTERED_FACES_DIR, name)
     if os.path.exists(face_dir):
-        import shutil
         shutil.rmtree(face_dir)
 
 # ── Re-embedding after model reload ──
 def re_embed_all_faces():
     if model is None:
-        print("[re_embed] No model loaded - skipping.")
+        log.warning("[re_embed] No model loaded - skipping.")
         return
  
     con  = sqlite3.connect(DB_PATH)
@@ -283,20 +328,20 @@ def re_embed_all_faces():
     con.close()
  
     if not rows:
-        print("[re_embed] No face dirs found -> cannot re-embed. "
+        log.warning("[re_embed] No face dirs found -> cannot re-embed. "
             "People registered before this fix will need to re-register once.")
         return
  
-    print(f"[re_embed] Re-embedding {len(rows)} registered persons with new model...")
+    log.info(f"[re_embed] Re-embedding {len(rows)} registered persons with new model...")
  
     for label, face_dir in rows:
         if not face_dir or not os.path.exists(face_dir):
-            print(f"[re_embed] - {label}: directory missing ({face_dir})")
+            log.warning(f"[re_embed] - {label}: directory missing ({face_dir})")
             continue
         try:
             crops = [f for f in os.listdir(face_dir) if f.lower().endswith(".jpg")]
             if not crops:
-                print(f"[re_embed] - {label}: no crops in {face_dir}")
+                log.warning(f"[re_embed] - {label}: no crops in {face_dir}")
                 continue
  
             embs = []
@@ -319,42 +364,44 @@ def re_embed_all_faces():
             )
             con.commit()
             con.close()
-            print(f"[re_embed] - {label} ({len(embs)} crops averaged)")
+            log.info(f"[re_embed] - {label} ({len(embs)} crops averaged)")
  
         except Exception as e:
-            print(f"[re_embed] - {label}: {e}")
+            log.error(f"[re_embed] - {label}: {e}",exc_info=True)
  
-    print("[re_embed] Done re-embedding all faces.")
+    log.info("[re_embed] Done re-embedding all faces.")
 
 # Misclassification helpers
-def log_misclassification(true_name: str, predicted: str, score: float,
-                           face_bgr: np.ndarray = None):
-    con = sqlite3.connect(DB_PATH)
-    con.execute(
-        "INSERT INTO misclassifications (true_name, predicted, score, timestamp) "
-        "VALUES (?,?,?,?)",
-        (true_name, predicted, score, time.time())
-    )
-
-    if face_bgr is not None:
-        ok, buf = cv2.imencode(".jpg", face_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
-        if ok:
-            con.execute(
-                "INSERT INTO misclassified_faces (true_name, face_bytes, timestamp) "
-                "VALUES (?,?,?)",
-                (true_name, buf.tobytes(), time.time())
-            )
-
-    row = con.execute(
-        "SELECT COUNT(DISTINCT true_name) FROM misclassifications WHERE corrected=0"
-    ).fetchone()
-    pending_count = row[0] if row else 0
-    con.commit()
-    con.close()
-
-    print(f"[Misclassification] true={true_name}  pred={predicted}  "
-          f"score={score:.3f}  pending_misclassified={pending_count}")
-
+def log_misclassification(true_name, predicted, score,face_bgr):
+    
+    try:
+        con = sqlite3.connect(DB_PATH)
+        con.execute(
+            "INSERT INTO misclassifications (true_name, predicted, score, timestamp) "
+            "VALUES (?,?,?,?)",
+            (true_name, predicted, score, time.time())
+        )
+        if face_bgr is not None:
+            ok, buf = cv2.imencode(".jpg", face_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            if ok:
+                con.execute(
+                    "INSERT INTO misclassified_faces (true_name, face_bytes, timestamp) "
+                    "VALUES (?,?,?)",
+                    (true_name, buf.tobytes(), time.time())
+                )
+        row = con.execute(
+            "SELECT COUNT(DISTINCT true_name) FROM misclassifications WHERE corrected=0"
+        ).fetchone()
+        pending_count = row[0] if row else 0
+        con.commit()
+    except sqlite3.Error as exc:
+        log.error("log_misclassification: DB write failed", exc_info=True)
+        return
+    finally:
+        con.close()
+ 
+    log.info("[Misclassification] true=%s pred=%s score=%.3f pending=%d", true_name, predicted, score, pending_count)
+ 
     if pending_count >= MISCLASSIFY_THRESHOLD:
         _trigger_retraining_dag()
     
@@ -362,14 +409,25 @@ def log_misclassification(true_name: str, predicted: str, score: float,
 
 
 def _get_airflow_token() -> str:
-    """Exchange username/password for a JWT Bearer token (Airflow 3.x)."""
-    resp = http_requests.post(
-        f"{AIRFLOW_BASE_URL}/auth/token",
-        json={"username": AIRFLOW_USERNAME, "password": AIRFLOW_PASSWORD},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()["access_token"]
+    """
+        Exchange username/password for a JWT Bearer token (Airflow 3.x).
+    """
+    try:
+        resp = http_requests.post(
+            f"{AIRFLOW_BASE_URL}/auth/token",
+            json={"username": AIRFLOW_USERNAME, "password": AIRFLOW_PASSWORD},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        token = resp.json().get("access_token")
+        if not token:
+            raise ValueError("Airflow auth response missing access_token")
+        return token
+    except http_requests.exceptions.ConnectionError as exc:
+        raise RuntimeError(f"Cannot connect to Airflow at {AIRFLOW_BASE_URL}") from exc
+    except http_requests.exceptions.HTTPError as exc:
+        raise RuntimeError(f"Airflow auth failed: {exc.response.status_code}") from exc
+ 
 
 
 def _trigger_retraining_dag():
@@ -395,21 +453,16 @@ def _trigger_retraining_dag():
             timeout=10,
         )
         if resp.status_code in (200, 201):
-            print(f"[Airflow] Retraining DAG triggered: {resp.json().get('dag_run_id')}")
+            log.info(f"[Airflow] Retraining DAG triggered: {resp.json().get('dag_run_id')}")
             _mark_misclassifications_triggered()
         else:
-            print(f"[Airflow] Failed to trigger DAG: {resp.status_code} {resp.text}")
+            log.info(f"[Airflow] Failed to trigger DAG: {resp.status_code} {resp.text}")
     except Exception as exc:
-        print(f"[Airflow] Error triggering DAG: {exc}")
+        log.error(f"[Airflow] Error triggering DAG: {exc}",exc_info=True)
 
 
 def _mark_misclassifications_triggered():
-    # con = sqlite3.connect(DB_PATH)
-    # con.execute("UPDATE misclassifications SET corrected=1 WHERE corrected=0")
-    # con.execute("DELETE FROM misclassified_faces")
-    # con.commit()
-    # con.close()
-    print("[Misclassification] DAG triggered — keeping pending count until model is deployed.")
+    log.info("[Misclassification] DAG triggered — keeping pending count until model is deployed.")
     update_misclassification_metric()
 
 
@@ -447,7 +500,7 @@ def load_best_model_from_mlflow():
         run_id  = mv.run_id
         version = mv.version
 
-        print(f"[MLflow] Loading model '{MLFLOW_MODEL_NAME}' version={version} run_id={run_id}")
+        log.info(f"[MLflow] Loading model '{MLFLOW_MODEL_NAME}' version={version} run_id={run_id}")
 
         model_uri = f"runs:/{run_id}/best_model"
         m = mlflow.pytorch.load_model(model_uri, map_location=DEVICE).to(DEVICE)
@@ -457,11 +510,11 @@ def load_best_model_from_mlflow():
             model = m
             model_version = version
 
-        print(f"[MLflow] Model loaded -> version {version}, device={DEVICE}")
+        log.info(f"[MLflow] Model loaded -> version {version}, device={DEVICE}")
         return version
 
     except Exception as exc:
-        print(f"[MLflow] ERROR loading model: {exc}")
+        log.error(f"[MLflow] ERROR loading model: {exc}",exc_info=True)
         raise
 
 
@@ -485,31 +538,33 @@ def _model_reload_loop():
                 continue
             latest = prod_versions[0]
             if str(latest.version) != str(model_version):
-                print(f"[MLflow] New Production model detected (v{latest.version}), reloading…")
+                log.info(f"[MLflow] New Production model detected (v{latest.version}), reloading…")
                 load_best_model_from_mlflow()
                 re_embed_all_faces()
         except Exception as exc:
-            print(f"[MLflow] Reload check failed: {exc}")
+            log.warning(f"[MLflow] Reload check failed: {exc}")
 
 
-# ── Model inference ───────────────────────────────────────────────────────────
-def get_embedding(face_bgr: np.ndarray) -> np.ndarray:
-    rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
-    tensor = INFER_TRANSFORM(Image.fromarray(rgb)).unsqueeze(0).to(DEVICE)
-    with _model_lock:
-        with torch.no_grad():
-            emb = model.encoder(tensor)
-    return emb.squeeze(0).cpu().numpy()
+# - Model inference -------
+def get_embedding(face_bgr):
+    if face_bgr is None or face_bgr.size == 0:
+        raise ValueError("get_embedding received an empty or None face crop")
+    try:
+        rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+        tensor = INFER_TRANSFORM(Image.fromarray(rgb)).unsqueeze(0).to(DEVICE)
+        with _model_lock:
+            with torch.no_grad():
+                emb = model.encoder(tensor)
+        return emb.squeeze(0).cpu().numpy()
+    except Exception as exc:
+        log.error("get_embedding failed", exc_info=True)
+        raise RuntimeError("Embedding extraction failed") from exc
 
 
-# ── MediaPipe face detection helpers ─────────────────────────────────────────
+# ----- MediaPipe face detection helpers -------
 def init_face_detector():
     """
-    Create a MediaPipe FaceDetection instance.
-
-    model_selection=1 uses the full-range model trained on a much wider variety
-    of poses, distances and lighting than the short-range model (0). It is the
-    right choice for a surveillance / door-entry style camera.
+        Create a MediaPipe FaceDetection instance.
     """
     return _mp_face.FaceDetection(
         model_selection=MP_MODEL_SELECTION,
@@ -519,15 +574,13 @@ def init_face_detector():
 
 def detect_faces_mp(detector, frame_bgr: np.ndarray):
     """
-    Run MediaPipe face detection on a BGR frame.
+        Run MediaPipe face detection on a BGR frame.
 
-    Returns a list of (x, y, w, h) pixel bounding boxes, padded by
-    MP_BBOX_PAD so the crop includes enough facial context for the
-    embedding model.
-
-    MediaPipe expects RGB input; we convert here so callers can stay
-    in BGR-land just like before.
+        Returns a list of (x, y, w, h) pixel bounding boxes, padded by
+        MP_BBOX_PAD so the crop includes enough facial context for the
+        embedding model.
     """
+
     h, w = frame_bgr.shape[:2]
     rgb  = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
@@ -569,10 +622,10 @@ def find_camera():
         if c.isOpened():
             ret, _ = c.read()
             if ret:
-                print(f"Camera found at index {idx}")
+                log.info(f"Camera found at index {idx}")
                 return c
             c.release()
-    print("ERROR: No working camera found (indices 0-5 tried)")
+    log.error("ERROR: No working camera found (indices 0-5 tried)",exc_info=True)
     return None
 
 
@@ -591,9 +644,7 @@ def gen_frames():
             time.sleep(0.1)
         return
 
-    # ── Initialise MediaPipe detector (once per stream) ───────────────────────
-    # MediaPipe context managers keep internal state; we open it here and
-    # close it when the generator exits so resources are properly released.
+    
     face_detector = init_face_detector()
 
     reg_state = "idle"
@@ -605,9 +656,16 @@ def gen_frames():
         while not _stop.is_set():
             ret, frame = cap.read()
             if not ret:
-                break
+                log.warning("gen_frames: cap.read() failed — attempting reconnect")
+                time.sleep(1)
+                cap.release()
+                cap = find_camera()
+                if cap is None:
+                    log.error("gen_frames: camera lost and could not reconnect")
+                    break
+                continue
 
-            # ── Detect faces with MediaPipe ───────────────────────────────────
+            # - Detect faces with MediaPipe ----
             faces = detect_faces_mp(face_detector, frame)
             now   = time.time()
 
@@ -619,7 +677,7 @@ def gen_frames():
             mode = g_state["mode"]
             g_state['_last_face_crop'] = face_crop
 
-            # ── RECOGNITION mode ──────────────────────────────────────────────
+            # -- RECOGNITION mode ----------
             if mode == "recognize":
                 reg_state = "idle"
                 if face_crop is not None and model is not None:
@@ -647,7 +705,7 @@ def gen_frames():
                 elif len(faces) == 0:
                     g_state["last_result"] = ""
 
-            # ── REGISTER mode ─────────────────────────────────────────────────
+            # -- REGISTER mode --------------
             elif mode == "register":
                 name = g_state["reg_name"]
 
@@ -811,7 +869,9 @@ def api_status():
 
 @app.route("/api/test_recognition", methods=["POST"])
 def api_test_recognition():
-    """Run one inference on the most-recently seen face and return result."""
+    """
+        Run one inference on the most-recently seen face and return result.
+    """
     crop = g_state.get("_last_face_crop")
     if crop is None or model is None:
         return jsonify({"ok": False, "error": "No face visible — stand in front of camera first"})
@@ -826,7 +886,10 @@ def api_test_recognition():
 
 @app.route("/api/flag_retrain", methods=["POST"])
 def api_flag_retrain():
-    """User said recognition was wrong — save face crop with the correct label as a retraining sample."""
+    """
+        User said recognition was wrong — save face crop with the correct label as a retraining sample.
+    """
+
     data = request.get_json(force=True)
     true_label = (data.get("true_label") or "").strip()
     if not true_label:
@@ -899,10 +962,10 @@ def api_report_misclassification():
     global request_count
     request_count += 1
 
-    data      = request.get_json(force=True)
+    data = request.get_json(force=True)
     true_name = (data.get("true_name") or "").strip()
     predicted = (data.get("predicted") or "").strip()
-    score     = float(data.get("score", 0.0))
+    score = float(data.get("score", 0.0))
 
     if not true_name:
         return jsonify({"ok": False, "error": "true_name is required"}), 400
@@ -923,7 +986,9 @@ def api_misclassification_stats():
 
 @app.route("/api/trigger_retrain", methods=["POST"])
 def api_trigger_retrain():
-    """Manual override — trigger retraining immediately."""
+    """
+        Manual override — trigger retraining immediately.
+    """
     _trigger_retraining_dag()
     return jsonify({"ok": True, "message": "Retraining DAG trigger sent to Airflow"})
 
@@ -946,7 +1011,7 @@ if __name__ == "__main__":
         load_best_model_from_mlflow()
         re_embed_all_faces()
     except Exception as exc:
-        print(f"[Boot] No model available yet ({exc}); serving without one.")
+        log.error(f"[Boot] No model available yet ({exc}); serving without one.",exc_info=True)
 
     reload_thread = threading.Thread(target=_model_reload_loop, daemon=True)
     reload_thread.start()

@@ -1,0 +1,154 @@
+name: face-recognition-siamese
+
+# Docker environment ensures identical dev / test / prod environments.
+# The trainer image is built by Dockerfile.train and published via CI.
+# Set MLFLOW_TRACKING_URI in the environment before calling mlflow run.
+docker_env:
+  image: trainer:latest
+  volumes:
+    - "{PWD}/data:/app/data"
+    - "{PWD}/checkpoints:/app/checkpoints"
+    - "{PWD}/logs:/app/logs"
+    - "{PWD}/params.yaml:/app/params.yaml"
+  environment:
+    - MLFLOW_TRACKING_URI
+    - MLFLOW_MODEL_NAME
+    - DATASET_NAME
+    - PYTHONUNBUFFERED=1
+    - GIT_PYTHON_REFRESH=quiet
+    - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+entry_points:
+
+  # ── 1. Data preparation ────────────────────────────────────────────────────
+  prepare_data:
+    parameters:
+      dataset_name:
+        type: str
+        default: lfw
+      train_ratio:
+        type: float
+        default: 0.80
+      val_ratio:
+        type: float
+        default: 0.15
+      seed:
+        type: int
+        default: 42
+      min_images_per_identity:
+        type: int
+        default: 2
+    command: >
+      python src/prepare_data.py
+
+  # ── 2. Hyperparameter sweep (Optuna) ──────────────────────────────────────
+  sweep:
+    parameters:
+      dataset_name:
+        type: str
+        default: lfw
+      n_trials:
+        type: int
+        default: 5
+      n_epochs_per_trial:
+        type: int
+        default: 30
+      lr_min:
+        type: float
+        default: 1.0e-4
+      lr_max:
+        type: float
+        default: 1.0e-2
+      margin_min:
+        type: float
+        default: 0.2
+      margin_max:
+        type: float
+        default: 1.0
+      mining_choices:
+        type: str
+        default: semi
+      batch_size:
+        type: int
+        default: 32
+      embedding_dim:
+        type: int
+        default: 128
+    command: >
+      DATASET_NAME={dataset_name}
+      N_TRIALS={n_trials}
+      N_EPOCHS_PER_TRIAL={n_epochs_per_trial}
+      LR_MIN={lr_min}
+      LR_MAX={lr_max}
+      MARGIN_MIN={margin_min}
+      MARGIN_MAX={margin_max}
+      MINING_CHOICES={mining_choices}
+      BATCH_SIZE={batch_size}
+      EMBEDDING_DIM={embedding_dim}
+      python src/sweep_optuna.py
+
+  # ── 3. Single training run (no sweep) ─────────────────────────────────────
+  train:
+    parameters:
+      dataset_name:
+        type: str
+        default: lfw
+      num_epochs:
+        type: int
+        default: 100
+      batch_size:
+        type: int
+        default: 32
+      learning_rate:
+        type: float
+        default: 1.0e-4
+      margin:
+        type: float
+        default: 0.5
+      triplet_mining:
+        type: str
+        default: semi
+      warmup_epochs:
+        type: int
+        default: 5
+      embedding_dim:
+        type: int
+        default: 128
+    command: >
+      DATASET_NAME={dataset_name}
+      NUM_EPOCHS={num_epochs}
+      BATCH_SIZE={batch_size}
+      LEARNING_RATE={learning_rate}
+      MARGIN={margin}
+      TRIPLET_MINING={triplet_mining}
+      WARMUP_EPOCHS={warmup_epochs}
+      EMBEDDING_DIM={embedding_dim}
+      python src/main.py
+
+  # ── 4. Model registration ──────────────────────────────────────────────────
+  register:
+    parameters:
+      dataset_name:
+        type: str
+        default: lfw
+    command: >
+      DATASET_NAME={dataset_name}
+      python src/register_model.py
+
+  # ── 5. Full pipeline (prepare → sweep → register) ─────────────────────────
+  main:
+    parameters:
+      dataset_name:
+        type: str
+        default: lfw
+      n_trials:
+        type: int
+        default: 5
+      n_epochs_per_trial:
+        type: int
+        default: 30
+    command: >
+      DATASET_NAME={dataset_name}
+      N_TRIALS={n_trials}
+      N_EPOCHS_PER_TRIAL={n_epochs_per_trial}
+      bash -c "python src/prepare_data.py && python src/sweep_optuna.py && python src/register_model.py"

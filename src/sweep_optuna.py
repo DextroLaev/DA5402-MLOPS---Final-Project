@@ -19,13 +19,17 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-
+ 
 import optuna
 import torch
 import mlflow
 from mlflow.tracking import MlflowClient
-
+ 
+import logging
 import config
+ 
+log = logging.getLogger(__name__)
+
 from dataloader import get_dataloaders
 from model import build_model
 from train import train
@@ -61,13 +65,13 @@ def _load_production_state_dict(client: MlflowClient):
     try:
         prod = client.get_latest_versions(MODEL_NAME, stages=["Production"])
     except Exception as exc:
-        print(f"[finetune] Could not query Production model: {exc}")
+        log.error(f"[finetune] Could not query Production model: {exc}",exc_info=True)
         return None
     if not prod:
-        print("[finetune] No Production model registered yet — training from scratch.")
+        log.warning("[finetune] No Production model registered yet — training from scratch.")
         return None
     uri = f"models:/{MODEL_NAME}/Production"
-    print(f"[finetune] Loading Production weights from {uri} (v{prod[0].version})")
+    log.info(f"[finetune] Loading Production weights from {uri} (v{prod[0].version})")
     loaded = mlflow.pytorch.load_model(uri, map_location="cpu")
     return loaded.state_dict()
 
@@ -84,9 +88,9 @@ def main():
     client = MlflowClient()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    print(f"Sweep ID    : {SWEEP_ID}")
-    print(f"Sweep config: {N_TRIALS} trials x {N_EPOCHS_PER_TRIAL} epochs each")
+    log.info(f"Using device: {device}")
+    log.info(f"Sweep ID    : {SWEEP_ID}")
+    log.info(f"Sweep config: {N_TRIALS} trials x {N_EPOCHS_PER_TRIAL} epochs each")
 
     train_loader, val_loader, _ = get_dataloaders(batch_size=config.BATCH_SIZE, k=4)
 
@@ -112,12 +116,12 @@ def main():
         if finetune_state is not None:
             missing, unexpected = model.load_state_dict(finetune_state, strict=False)
             if missing or unexpected:
-                print(f"[finetune] load_state_dict missing={missing} unexpected={unexpected}")
+                log.warning(f"[finetune] load_state_dict missing={missing} unexpected={unexpected}")
             for p in model.encoder.backbone.parameters():
                 p.requires_grad = True
-            print("[finetune] Initialized trial from Production weights (backbone unfrozen).")
+            log.info("[finetune] Initialized trial from Production weights (backbone unfrozen).")
 
-        print(
+        log.info(
             f"\n--- Trial {trial.number}: lr={lr:.2e} margin={margin:.3f} "
             f"mining={mining} warmup={warmup} ---"
         )
@@ -146,12 +150,12 @@ def main():
 
     client.set_tag(best_run_id, "best_of_sweep", "true")
 
-    print("\n=== Sweep complete ===")
-    print(f"Sweep ID    : {SWEEP_ID}")
-    print(f"Best trial  : #{best.number}")
-    print(f"  val_loss  : {best.value:.4f}")
-    print(f"  params    : {best.params}")
-    print(f"  run_id    : {best_run_id}")
+    log.info("\n=== Sweep complete ===")
+    log.info(f"Sweep ID    : {SWEEP_ID}")
+    log.info(f"Best trial  : #{best.number}")
+    log.info(f"  val_loss  : {best.value:.4f}")
+    log.info(f"  params    : {best.params}")
+    log.info(f"  run_id    : {best_run_id}")
 
     os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)
     out = {
@@ -162,7 +166,7 @@ def main():
     }
     with open(os.path.join(config.CHECKPOINT_DIR, f"{config.DATASET_NAME}_best_run.json"), "w") as f:
         json.dump(out, f, indent=2)
-    print(f"Wrote {config.CHECKPOINT_DIR}/best_run.json")
+    log.info(f"Wrote {config.CHECKPOINT_DIR}/best_run.json")
 
     best_mlflow_metrics = client.get_run(best_run_id).data.metrics
 
@@ -173,7 +177,7 @@ def main():
         with open(data_metrics_path) as f:
             data_metrics = json.load(f)
     else:
-        print(f"[sweep] Warning: data metrics not found at {data_metrics_path} — skipping merge.")
+        log.info(f"[sweep] Warning: data metrics not found at {data_metrics_path} — skipping merge.")
     
     _params_train = _p
     _params_prepare = yaml.safe_load(
@@ -203,7 +207,7 @@ def main():
     
     with open(dvc_path, "w") as f:
         json.dump(dvc_metrics, f, indent=2)
-    print(f"[sweep] Wrote consolidated metrics → {dvc_path}")
+    log.info(f"[sweep] Wrote consolidated metrics → {dvc_path}")
  
  
 if __name__ == "__main__":
