@@ -4,6 +4,16 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [main, develop]
+    paths: 
+      - 'src/**'
+      - '!src/config.py'
+      - 'flask_app/**'
+      - 'dags/**'
+      - 'Dockerfile.*'
+      - 'requirements*.txt'
+      - 'tests/**'
+      - '!dvc.lock'
+      - '!params.yaml'
   pull_request:
     branches: [main]
   workflow_dispatch:          # allows manual trigger from GitHub UI

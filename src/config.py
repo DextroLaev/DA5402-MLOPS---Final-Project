@@ -61,8 +61,8 @@ RANDOM_ROTATION_DEG = 10
 # inference
 THRESHOLD = 0.8
 
-NUM_WORKERS = 0
-PIN_MEMORY = False
+NUM_WORKERS = 4
+PIN_MEMORY = True
 
 # ─── Logging / checkpointing ──────────────────────────────────────────────────
 SAVE_EVERY_N_EPOCHS = 5
