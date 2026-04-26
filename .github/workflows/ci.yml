@@ -53,7 +53,7 @@ jobs:
                 opencv-python-headless==4.9.0.80 \
                 "flask>=3.0" \
                 optuna==3.6.1 \
-                mediapipe==0.10.21
+                mediapipe==0.10.21 \
                 prometheus_client
 
       - name: Lint with flake8
