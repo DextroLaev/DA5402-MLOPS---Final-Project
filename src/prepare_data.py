@@ -29,8 +29,8 @@ from dataloader import scan_lfw, split_identities, merge_misclassified_into_trai
 
 # ── Config ────────────────────────────────────────────────────────────────────
 TRAIN_RATIO = float(os.environ.get("TRAIN_RATIO", config.TRAIN_RATIO))
-VAL_RATIO = float(os.environ.get("VAL_RATIO",   config.VAL_RATIO))
-SEED = int(os.environ.get("SEED",           config.SEED))
+VAL_RATIO = float(os.environ.get("VAL_RATIO",config.VAL_RATIO))
+SEED = int(os.environ.get("SEED",config.SEED))
 MIN_IMAGES = int(os.environ.get("MIN_IMAGES_PER_IDENTITY", "2"))
 
 MANIFEST_PATH = os.path.join(config.DATA_DIR, f"{config.DATASET_NAME}_manifest.json")

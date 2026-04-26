@@ -215,7 +215,6 @@ def db_register(embedding,name,face_bgr):
     con = sqlite3.connect(DB_PATH)
     row = con.execute("SELECT embedding, count FROM faces WHERE label=?", (name,)).fetchone()
 
-    con = sqlite3.connect(DB_PATH)
     row = con.execute("SELECT embedding, count FROM faces WHERE label=?", (name,)).fetchone()
     if row:
         old_emb = np.frombuffer(row[0], dtype=np.float32)
@@ -227,8 +226,8 @@ def db_register(embedding,name,face_bgr):
         )
     else:
         con.execute(
-            "INSERT INTO faces (label, embedding, count) VALUES (?,?,1)",
-            (name, emb_bytes)
+            "INSERT INTO faces (label, embedding, count,face_dir) VALUES (?,?,1,?)",
+            (name, emb_bytes,face_dir)
         )
     con.commit()
     con.close()
@@ -487,6 +486,7 @@ def _model_reload_loop():
             if str(latest.version) != str(model_version):
                 print(f"[MLflow] New Production model detected (v{latest.version}), reloading…")
                 load_best_model_from_mlflow()
+                re_embed_all_faces()
         except Exception as exc:
             print(f"[MLflow] Reload check failed: {exc}")
 
@@ -666,7 +666,7 @@ def gen_frames():
                 elif reg_state == "done":
                     if reg_crop is not None and model is not None and name:
                         emb = get_embedding(reg_crop)
-                        db_register(emb, name)
+                        db_register(emb, name,reg_crop)
                         _record_registration()
 
                         v_label, v_score = db_recognize(emb)
