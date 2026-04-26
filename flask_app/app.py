@@ -108,33 +108,19 @@ signal.signal(signal.SIGTERM, _handle_signal)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DB_PATH = os.environ.get("DB_PATH", "face_db.sqlite")
 THRESHOLD = float(os.environ.get("THRESHOLD", "0.5"))
-
-# MLflow settings — override via env vars in docker-compose
 MLFLOW_TRACKING_URI     = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 MLFLOW_MODEL_NAME       = os.environ.get("MLFLOW_MODEL_NAME", "FaceRecognitionModel")
-
-# Airflow REST API settings
 AIRFLOW_BASE_URL        = os.environ.get("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
 AIRFLOW_USERNAME        = os.environ.get("AIRFLOW_USERNAME", "airflow")
 AIRFLOW_PASSWORD        = os.environ.get("AIRFLOW_PASSWORD", "airflow")
 RETRAIN_DAG_ID          = os.environ.get("RETRAIN_DAG_ID", "face_retraining_dag")
-
-# Misclassification threshold: trigger retraining after this many unique misclassified people
 MISCLASSIFY_THRESHOLD   = int(os.environ.get("MISCLASSIFY_THRESHOLD", "2"))
-
-# ── MediaPipe detector settings ───────────────────────────────────────────────
-# model_selection=1  → full-range model (detects faces up to 5 m away, better
-#                       at extreme angles/distances than the short-range model 0)
-# min_detection_confidence → lower = detects more faces (inc. difficult ones)
-#                             but may introduce false positives. 0.4 is a good
-#                             balance for challenging real-world conditions.
 MP_MODEL_SELECTION       = int(os.environ.get("MP_MODEL_SELECTION", "1"))
 MP_MIN_DETECTION_CONF    = float(os.environ.get("MP_MIN_DETECTION_CONF", "0.4"))
-
-# Padding fraction added around the raw bounding box so the crop fed to the
-# embedding model contains forehead / chin — identical to what registration
-# captures — avoiding a tight-crop vs loose-crop mismatch.
 MP_BBOX_PAD              = float(os.environ.get("MP_BBOX_PAD", "0.20"))
+
+REGISTERED_FACES_DIR = os.path.join(os.path.dirname(DB_PATH), "registered_faces")
+
 
 INFER_TRANSFORM = T.Compose([
     T.Resize(256),
@@ -181,9 +167,10 @@ def init_db():
             label     TEXT    NOT NULL UNIQUE,
             embedding BLOB    NOT NULL,
             count     INTEGER NOT NULL DEFAULT 1
+            face_dir  TEXT
         )
     """)
-    # Table for logging misclassification events
+
     con.execute("""
         CREATE TABLE IF NOT EXISTS misclassifications (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,21 +190,31 @@ def init_db():
             timestamp     REAL    NOT NULL
         )
     """)
-    # con.execute("""
-    #     CREATE TABLE IF NOT EXISTS retrain_queue (
-    #         id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    #         true_label TEXT    NOT NULL,
-    #         embedding  BLOB    NOT NULL,
-    #         flagged_at TEXT    DEFAULT (datetime('now'))
-    #     )
-    # """)
+
+    try:
+        con.execute("ALTER TABLE faces ADD COLUMN face_dir TEXT")
+    except sqlite3.OperationalError:
+        # column exists
+        pass
+    
     con.commit()
     con.close()
 
 
 # ─── Face DB helpers ──────────────────────────────────────────────────────────
-def db_register(embedding: np.ndarray, name: str):
+def db_register(embedding,name,face_bgr):
     emb_bytes = embedding.astype(np.float32).tobytes()
+
+    face_dir = None
+    if face_bgr is not None:
+        face_dir = os.path.join(REGISTERED_FACES_DIR, name)
+        os.makedirs(face_dir, exist_ok=True)
+        fname = os.path.join(face_dir, f"{int(time.time() * 1000)}.jpg")
+        cv2.imwrite(fname, face_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+ 
+    con = sqlite3.connect(DB_PATH)
+    row = con.execute("SELECT embedding, count FROM faces WHERE label=?", (name,)).fetchone()
+
     con = sqlite3.connect(DB_PATH)
     row = con.execute("SELECT embedding, count FROM faces WHERE label=?", (name,)).fetchone()
     if row:
@@ -271,9 +268,66 @@ def db_delete_person(name: str):
     con.execute("DELETE FROM faces WHERE label=?", (name,))
     con.commit()
     con.close()
+    face_dir = os.path.join(REGISTERED_FACES_DIR, name)
+    if os.path.exists(face_dir):
+        import shutil
+        shutil.rmtree(face_dir)
 
+# ── Re-embedding after model reload ──
+def re_embed_all_faces():
+    if model is None:
+        print("[re_embed] No model loaded - skipping.")
+        return
+ 
+    con  = sqlite3.connect(DB_PATH)
+    rows = con.execute("SELECT label, face_dir FROM faces WHERE face_dir IS NOT NULL").fetchall()
+    con.close()
+ 
+    if not rows:
+        print("[re_embed] No face dirs found -> cannot re-embed. "
+            "People registered before this fix will need to re-register once.")
+        return
+ 
+    print(f"[re_embed] Re-embedding {len(rows)} registered persons with new model...")
+ 
+    for label, face_dir in rows:
+        if not face_dir or not os.path.exists(face_dir):
+            print(f"[re_embed] - {label}: directory missing ({face_dir})")
+            continue
+        try:
+            crops = [f for f in os.listdir(face_dir) if f.lower().endswith(".jpg")]
+            if not crops:
+                print(f"[re_embed] - {label}: no crops in {face_dir}")
+                continue
+ 
+            embs = []
+            for fname in sorted(crops):
+                face_bgr = cv2.imread(os.path.join(face_dir, fname))
+                if face_bgr is not None:
+                    embs.append(get_embedding(face_bgr))
+ 
+            if not embs:
+                continue
+ 
+            avg_emb = np.mean(embs, axis=0).astype(np.float32)
+            # L2-normalise
+            avg_emb = avg_emb / (np.linalg.norm(avg_emb) + 1e-9)
+ 
+            con = sqlite3.connect(DB_PATH)
+            con.execute(
+                "UPDATE faces SET embedding=? WHERE label=?",
+                (avg_emb.tobytes(), label)
+            )
+            con.commit()
+            con.close()
+            print(f"[re_embed] - {label} ({len(embs)} crops averaged)")
+ 
+        except Exception as e:
+            print(f"[re_embed] - {label}: {e}")
+ 
+    print("[re_embed] Done re-embedding all faces.")
 
-# ── Misclassification helpers ─────────────────────────────────────────────────
+# Misclassification helpers
 def log_misclassification(true_name: str, predicted: str, score: float,
                            face_bgr: np.ndarray = None):
     con = sqlite3.connect(DB_PATH)
@@ -351,8 +405,9 @@ def _trigger_retraining_dag():
 
 
 def _mark_misclassifications_triggered():
+    con = sqlite3.connect(DB_PATH)
     con.execute("UPDATE misclassifications SET corrected=1 WHERE corrected=0")
-    con.execute("DELETE FROM misclassified_faces")  # ← add this line
+    con.execute("DELETE FROM misclassified_faces")
     con.commit()
     con.close()
     update_misclassification_metric()
@@ -368,7 +423,7 @@ def get_misclassification_stats():
     return {"total": total, "unique_pending": pending, "threshold": MISCLASSIFY_THRESHOLD}
 
 
-# ── MLflow model loading ──────────────────────────────────────────────────────
+# MLFLOW model loading
 def load_best_model_from_mlflow():
     global model, model_version
 
@@ -399,10 +454,10 @@ def load_best_model_from_mlflow():
         m.eval()
 
         with _model_lock:
-            model         = m
+            model = m
             model_version = version
 
-        print(f"[MLflow] Model loaded — version {version}, device={DEVICE}")
+        print(f"[MLflow] Model loaded -> version {version}, device={DEVICE}")
         return version
 
     except Exception as exc:
@@ -438,7 +493,7 @@ def _model_reload_loop():
 
 # ── Model inference ───────────────────────────────────────────────────────────
 def get_embedding(face_bgr: np.ndarray) -> np.ndarray:
-    rgb    = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
+    rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
     tensor = INFER_TRANSFORM(Image.fromarray(rgb)).unsqueeze(0).to(DEVICE)
     with _model_lock:
         with torch.no_grad():
@@ -888,6 +943,7 @@ if __name__ == "__main__":
 
     try:
         load_best_model_from_mlflow()
+        re_embed_all_faces()
     except Exception as exc:
         print(f"[Boot] No model available yet ({exc}); serving without one.")
 
