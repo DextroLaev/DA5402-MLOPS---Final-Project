@@ -131,8 +131,8 @@ stages:
       size: 2053
     - path: src/prepare_data.py
       hash: md5
-      md5: 3a37ff93ea9beaeca9e3bb9fc12d937a
-      size: 8988
+      md5: afce1ac02c0265d09724b7ae4686b43e
+      size: 8974
     outs:
     - path: data/lfw_baseline_stats.json
       hash: md5
@@ -176,8 +176,8 @@ stages:
       size: 2097
     - path: src/sweep_optuna.py
       hash: md5
-      md5: 77d5281129a1efbb5e5573a32272fdd9
-      size: 7808
+      md5: b03b9a8e69cc4c3e2f7a06a157efec74
+      size: 7999
     - path: src/train.py
       hash: md5
       md5: 1ccfe3d998080190821d5946eb9e97a6
@@ -191,31 +191,31 @@ stages:
         train:
           n_trials: 1
           n_epochs_per_trial: 30
-          lr_min: 0.001
-          lr_max: 0.001
-          margin_min: 0.5
-          margin_max: 0.5
+          lr_min: 0.01
+          lr_max: 0.01
+          margin_min: 0.7
+          margin_max: 0.7
           mining_choices: semi
-          batch_size: 64
+          batch_size: 128
           embedding_dim: 128
           dropout_rate: 0.3
-          warmup_epochs: 29
+          warmup_epochs: 10
     outs:
     - path: checkpoints/lfw_best_run.json
       hash: md5
-      md5: b429b8c5f561ef64723d4ad661d9abad
-      size: 251
+      md5: 75e7ce3d3b3d258b3f64d5937e3cedff
+      size: 249
     - path: checkpoints/lfw_dvc_metrics.json
       hash: md5
-      md5: 2696080761a9477d995c12cd94c90090
-      size: 327
+      md5: a5317d0dfc1a30dbaf9b0f140d4c0323
+      size: 324
   register:
     cmd: bash scripts/register.sh lfw
     deps:
     - path: checkpoints/lfw_best_run.json
       hash: md5
-      md5: b429b8c5f561ef64723d4ad661d9abad
-      size: 251
+      md5: 75e7ce3d3b3d258b3f64d5937e3cedff
+      size: 249
     - path: src/register_model.py
       hash: md5
       md5: 5350ec9f137e19c3cbf4defc09fdf244
@@ -223,5 +223,5 @@ stages:
     outs:
     - path: checkpoints/lfw_registered_version.txt
       hash: md5
-      md5: cf4278314ef8e4b996e1b798d8eb92cf
+      md5: 3bb50ff8eeb7ad116724b56a820139fa
       size: 3
