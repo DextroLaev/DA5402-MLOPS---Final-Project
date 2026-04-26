@@ -14,7 +14,7 @@ import mlflow
 import mlflow.pytorch
 import time as _time
 import datetime
-from prometheus_client import Gauge
+from prometheus_client import Gauge,REGISTRY
 
 # ── MediaPipe — neural-network face detection ─────────────────────────────────
 # Replaces Haar Cascade: handles extreme angles, low light, partial occlusion.
@@ -33,7 +33,12 @@ latency_count = 0
 
 _stop = threading.Event()
 
-misclassification_count = Gauge(
+def _get_or_create_gauge(name, description):
+    if name in REGISTRY._names_to_collectors:
+        return REGISTRY._names_to_collectors[name]
+    return Gauge(name, description)
+
+misclassification_count = _get_or_create_gauge(
     'face_misclassification_count',
     'Number of pending misclassified faces in DB'
 )
