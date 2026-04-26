@@ -3,3 +3,6 @@ mlartifacts/
 .db
 checkpoints/
 *.pth
+data/lfw
+data/vgg6face
+!checkpoints/lfw_dvc_metrics.json
