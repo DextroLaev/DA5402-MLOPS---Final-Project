@@ -190,7 +190,7 @@ stages:
       params.yaml:
         train:
           n_trials: 1
-          n_epochs_per_trial: 1
+          n_epochs_per_trial: 100
           lr_min: 3e-05
           lr_max: 0.0003
           margin_min: 0.2
@@ -203,19 +203,19 @@ stages:
     outs:
     - path: checkpoints/vgg6face_best_run.json
       hash: md5
-      md5: 6d1c0be10ca591ea0b8c1bcd9fd80f52
-      size: 281
+      md5: 8e694bc9b07cb6ae2d832c90d61d79e3
+      size: 282
     - path: checkpoints/vgg6face_dvc_metrics.json
       hash: md5
-      md5: 652d714c3f1ed041e79372e70074a80c
-      size: 371
+      md5: 70bfcd262e1179c1f761c2d97628e646
+      size: 372
   register:
     cmd: bash scripts/register.sh vgg6face
     deps:
     - path: checkpoints/vgg6face_best_run.json
       hash: md5
-      md5: 6d1c0be10ca591ea0b8c1bcd9fd80f52
-      size: 281
+      md5: 8e694bc9b07cb6ae2d832c90d61d79e3
+      size: 282
     - path: src/register_model.py
       hash: md5
       md5: de7feee35d0fedca89a4bf39ce8cc3db
@@ -223,5 +223,5 @@ stages:
     outs:
     - path: checkpoints/vgg6face_registered_version.txt
       hash: md5
-      md5: 649ee93d50739c656e94ec88a32c7ffe
+      md5: fa84f696e31d07f55cd45cc3c9e52f3b
       size: 3
