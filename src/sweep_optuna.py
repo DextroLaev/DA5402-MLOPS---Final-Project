@@ -41,11 +41,6 @@ _params_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "params.
 with open(_params_path) as f:
     _p = yaml.safe_load(f)["train"]
 
-torch.manual_seed(config.SEED)
-np.random.seed(config.SEED)
-random.seed(config.SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(config.SEED)
 
 N_TRIALS = int(os.environ.get("N_TRIALS",str(_p["n_trials"])))
 N_EPOCHS_PER_TRIAL = int(os.environ.get("N_EPOCHS_PER_TRIAL", str(_p["n_epochs_per_trial"])))
