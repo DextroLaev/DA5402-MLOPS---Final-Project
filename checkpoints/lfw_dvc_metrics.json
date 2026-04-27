@@ -2,15 +2,15 @@
   "dataset_name": "lfw",
   "n_trials": 1,
   "best_trial": 0,
-  "val_loss": 0.46106711626052854,
-  "train_loss": 0.4336251515262532,
-  "val_acc": 0.740625,
-  "train_acc": 0.6633254716981132,
-  "lr": 0.001,
-  "margin": 0.5,
-  "mining": "semi",
+  "val_loss": 0.38730146884918215,
+  "train_loss": 0.32231866469923054,
+  "val_acc": 0.76640625,
+  "train_acc": 0.5620577830188679,
+  "lr": 0.0009044695189353584,
+  "margin": 0.43242610747877774,
+  "mining": "all",
   "epochs": 30,
   "batch_size": 128,
   "train_ratio": 0.7,
-  "val_ratio": 0.2
+  "val_ratio": 0.15
 }
