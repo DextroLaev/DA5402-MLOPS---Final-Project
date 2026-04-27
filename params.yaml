@@ -16,10 +16,10 @@ prepare:
 train:
   n_trials: 1
   n_epochs_per_trial: 30
-  lr_min: 1.70e-03
-  lr_max: 1.70e-03
-  margin_min: 0.492
-  margin_max: 0.492
+  lr_min: 1e-5
+  lr_max: 1e-5
+  margin_min: 0.5
+  margin_max: 0.5
   mining_choices: "semi"
   batch_size: 32
   embedding_dim: 128

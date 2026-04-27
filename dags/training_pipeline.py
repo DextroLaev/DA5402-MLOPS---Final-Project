@@ -314,6 +314,13 @@ with DAG(
             REMOTE_MISCLASSIFIED="${REMOTE_DATA_DIR}/misclassified"
 
             # if [ "${TRIGGERED_BY}" = "misclassification_threshold" ] && [ -d "$LOCAL_MISCLASSIFIED" ] && [ "$(ls -A $LOCAL_MISCLASSIFIED 2>/dev/null)" ]; then
+            rsync -avz \
+                -e "ssh $SSH_OPTS" \
+                --exclude '__pycache__' \
+                --exclude '*.pyc' \
+                "/opt/airflow/src/" \
+                "${REMOTE_SSH_USER}@${REMOTE_SSH_HOST}:${REMOTE_CODE_DIR}/src/"
+
             if [ -d "$LOCAL_MISCLASSIFIED" ] && [ "$(ls -A $LOCAL_MISCLASSIFIED 2>/dev/null)" ]; then
                 echo "Syncing misclassified crops to remote server..."
                 rsync -avz --mkpath \

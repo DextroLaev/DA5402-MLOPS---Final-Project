@@ -50,8 +50,8 @@ def _load_params_from_yaml():
     mining = mining_raw.split(",")[0].strip() if isinstance(mining_raw, str) else mining_raw[0]
  
     return {
-        "learning_rate":  (p.get("lr_min", config.LEARNING_RATE) + p.get("lr_max", config.LEARNING_RATE)) / 2,
-        "margin":         (p.get("margin_min", config.MARGIN) + p.get("margin_max", config.MARGIN)) / 2,
+        "learning_rate": (float(p.get("lr_min", config.LEARNING_RATE)) + float(p.get("lr_max", config.LEARNING_RATE))) / 2,
+        "margin": (float(p.get("margin_min", config.MARGIN)) + float(p.get("margin_max", config.MARGIN))) / 2,
         "triplet_mining": mining,
         "warmup_epochs":  p.get("warmup_epochs", config.WARMUP_EPOCHS),
         "batch_size":     p.get("batch_size", config.BATCH_SIZE),

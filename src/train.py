@@ -36,14 +36,10 @@ def train_epoch(model, loader, criterion, optimizer, device):
         embeddings = model.encoder(images)
         loss, n_active = criterion(embeddings, labels)
 
-        # if n_active < config.MIN_ACTIVE_TRIPLETS:
-        #     del loss, embeddings
-        #     continue
-
-        if n_active == 0:
-            # no valid triplets → give zero loss but still backprop safely
-            loss = embeddings.sum() * 0.0
-
+        if n_active < config.MIN_ACTIVE_TRIPLETS:
+            del loss, embeddings
+            continue
+        
         try:
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
