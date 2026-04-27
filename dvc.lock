@@ -176,12 +176,12 @@ stages:
       size: 2294
     - path: src/sweep_optuna.py
       hash: md5
-      md5: d6f575283c7b1a84862bf2bde7ad12ae
-      size: 7970
+      md5: db2d3b4515ecd48f7c001ae9f6edcaed
+      size: 8039
     - path: src/train.py
       hash: md5
-      md5: 7ce0f3974f92a7336f612585b530668e
-      size: 9162
+      md5: d688b696899547c1f42cbc5bdef58c47
+      size: 9346
     - path: src/utils.py
       hash: md5
       md5: b484a5cf1c4e2a11e5c21ff6e9f1dc8e
@@ -191,31 +191,31 @@ stages:
         train:
           n_trials: 1
           n_epochs_per_trial: 30
-          lr_min: 0.0009044695189353584
-          lr_max: 0.0009044695189353584
-          margin_min: 0.43242610747877774
-          margin_max: 0.43242610747877774
-          mining_choices: all
+          lr_min: 0.0017
+          lr_max: 0.0017
+          margin_min: 0.492
+          margin_max: 0.492
+          mining_choices: semi
           batch_size: 64
           embedding_dim: 128
-          dropout_rate: 0.2
-          warmup_epochs: 1
+          dropout_rate: 0.3
+          warmup_epochs: 6
     outs:
     - path: checkpoints/lfw_best_run.json
       hash: md5
-      md5: 463d42fb44beb2347fa276d71527a4e2
-      size: 282
+      md5: ac018200d4da212820c5d8a2af2d8df0
+      size: 228
     - path: checkpoints/lfw_dvc_metrics.json
       hash: md5
-      md5: 7edffaa466eb8cd11979f684276f7a95
-      size: 358
+      md5: 886c61f84d7eed735d8b6356b466aa86
+      size: 325
   register:
     cmd: bash scripts/register.sh lfw
     deps:
     - path: checkpoints/lfw_best_run.json
       hash: md5
-      md5: 463d42fb44beb2347fa276d71527a4e2
-      size: 282
+      md5: ac018200d4da212820c5d8a2af2d8df0
+      size: 228
     - path: src/register_model.py
       hash: md5
       md5: de7feee35d0fedca89a4bf39ce8cc3db
@@ -223,5 +223,5 @@ stages:
     outs:
     - path: checkpoints/lfw_registered_version.txt
       hash: md5
-      md5: 21fa2e849284bf7681c37a8b565bd934
+      md5: d3a57c7e953913944c76009357469568
       size: 3
