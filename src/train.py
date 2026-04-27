@@ -36,9 +36,13 @@ def train_epoch(model, loader, criterion, optimizer, device):
         embeddings = model.encoder(images)
         loss, n_active = criterion(embeddings, labels)
 
-        if n_active < config.MIN_ACTIVE_TRIPLETS:
-            del loss, embeddings
-            continue
+        # if n_active < config.MIN_ACTIVE_TRIPLETS:
+        #     del loss, embeddings
+        #     continue
+
+        if n_active == 0:
+            # no valid triplets → give zero loss but still backprop safely
+            loss = embeddings.sum() * 0.0
 
         try:
             loss.backward()
@@ -54,7 +58,7 @@ def train_epoch(model, loader, criterion, optimizer, device):
         steps    += 1
 
     if steps == 0:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0
     return tot_loss / steps, tot_acc / steps
 
 
@@ -74,7 +78,7 @@ def val_epoch(model, loader, criterion, device):
         steps    += 1
 
     if steps == 0:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0
     return tot_loss / steps, tot_acc / steps
 
 
@@ -164,9 +168,9 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
 
         optimizer = make_optimizer(model, phase)
         if phase == 1:
-            scheduler = CosineAnnealingLR(optimizer, T_max=WARMUP_EPOCHS, eta_min=config.LEARNING_RATE * 0.1)
+            scheduler = CosineAnnealingLR(optimizer, T_max=config.WARMUP_EPOCHS, eta_min=config.LEARNING_RATE * 0.1)
         else:
-            scheduler = CosineAnnealingLR(optimizer, T_max=config.NUM_EPOCHS - WARMUP_EPOCHS, eta_min=FINETUNE_LR * 0.01)
+            scheduler = CosineAnnealingLR(optimizer, T_max=config.NUM_EPOCHS - config.WARMUP_EPOCHS, eta_min=config.FINETUNE_LR * 0.01)
 
         if resume_path and os.path.exists(resume_path):
             start_epoch, phase, best_val_loss, history = load_checkpoint(
@@ -179,13 +183,13 @@ def train(model, train_loader, val_loader, device, resume_path=None, mlflow_nest
     
         for epoch in range(start_epoch, config.NUM_EPOCHS + 1):
     
-            if epoch == WARMUP_EPOCHS + 1 and phase == 1:
+            if epoch == config.WARMUP_EPOCHS + 1 and phase == 1:
                 log.info("Switching to phase 2 - unfreezing backbone")
                 for p in model.encoder.backbone.parameters():
                     p.requires_grad = True
                 phase = 2
                 optimizer = make_optimizer(model, phase)
-                scheduler = CosineAnnealingLR(optimizer,T_max  = config.NUM_EPOCHS - WARMUP_EPOCHS,eta_min= FINETUNE_LR * 0.01,)
+                scheduler = CosineAnnealingLR(optimizer,T_max  = config.NUM_EPOCHS - config.WARMUP_EPOCHS,eta_min= config.FINETUNE_LR * 0.01,)
     
             t0 = time.time()
             tr_loss, tr_acc = train_epoch(model, train_loader, criterion, optimizer, device)

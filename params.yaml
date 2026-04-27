@@ -8,23 +8,23 @@
 
 prepare:
   train_ratio: 0.70
-  val_ratio: 0.20
+  val_ratio: 0.15
   seed: 42
   min_images_per_identity: 2
   dataset_name: lfw
 
 train:
-  n_trials: 5
+  n_trials: 1
   n_epochs_per_trial: 30
-  lr_min: 1e-5
-  lr_max: 1e-2
-  margin_min: 0.2
-  margin_max: 1
+  lr_min: 1.70e-03
+  lr_max: 1.70e-03
+  margin_min: 0.492
+  margin_max: 0.492
   mining_choices: "semi"
   batch_size: 32
   embedding_dim: 128
   dropout_rate: 0.3
-  warmup_epochs: 37
+  warmup_epochs: 6
 
 inference:
   threshold: 0.8

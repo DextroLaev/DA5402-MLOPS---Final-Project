@@ -54,6 +54,7 @@ def _load_params_from_yaml():
         "margin":         (p.get("margin_min", config.MARGIN) + p.get("margin_max", config.MARGIN)) / 2,
         "triplet_mining": mining,
         "warmup_epochs":  p.get("warmup_epochs", config.WARMUP_EPOCHS),
+        "batch_size":     p.get("batch_size", config.BATCH_SIZE),
     }
 
 def resolve_params() -> dict:
@@ -80,11 +81,14 @@ def apply_params(params: dict) -> None:
     config.MARGIN = float(params["margin"])
     config.TRIPLET_MINING = str(params["triplet_mining"])
     config.WARMUP_EPOCHS = int(params["warmup_epochs"])
+    config.BATCH_SIZE = int(params["batch_size"])
     log.info(
         f"[main] Active params - lr={config.LEARNING_RATE:.2e}  "
         f"margin={config.MARGIN:.3f}  mining={config.TRIPLET_MINING}  "
         f"warmup={config.WARMUP_EPOCHS}"
+        f"Batch Siz={config.BATCH_SIZE}"
     )
+
 
 def load_production_weights(model, mlflow_uri: str, model_name: str):
     """
@@ -162,7 +166,7 @@ if __name__ == '__main__':
         json.dump(best_run, f, indent=2)
  
     mlflow_metrics = {}
-    
+
     if mlflow_uri:
         try:
             mlflow_metrics = mlflow.get_run(run_id).data.metrics

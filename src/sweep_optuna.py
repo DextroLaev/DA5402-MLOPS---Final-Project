@@ -51,6 +51,8 @@ MARGIN_MAX = float(os.environ.get("MARGIN_MAX",str(_p["margin_max"])))
 MINING_CHOICES = os.environ.get("MINING_CHOICES",_p["mining_choices"]).split(",")
 TRIGGERED_BY = os.environ.get("TRIGGERED_BY", "schedule")
 MODEL_NAME = os.environ.get("MLFLOW_MODEL_NAME", "SiameseFaceRecognition")
+config.BATCH_SIZE = int(_p["batch_size"])
+
 
 if TRIGGERED_BY == "misclassification_threshold":
     N_TRIALS = 1
@@ -97,9 +99,10 @@ def main():
         lr = trial.suggest_float("learning_rate", LR_MIN, LR_MAX, log=True)
         margin = trial.suggest_float("margin", MARGIN_MIN, MARGIN_MAX)
         mining = trial.suggest_categorical("triplet_mining", MINING_CHOICES)
-        warmup = trial.suggest_int(
-            "warmup_epochs", 1, max(1, N_EPOCHS_PER_TRIAL - 1)
-        )
+        # warmup = trial.suggest_int(
+        #     "warmup_epochs", 1, max(1, N_EPOCHS_PER_TRIAL - 1)
+        # )
+        warmup = _p.get("warmup_epochs", config.WARMUP_EPOCHS)
 
         config.LEARNING_RATE = lr
         config.MARGIN = margin
