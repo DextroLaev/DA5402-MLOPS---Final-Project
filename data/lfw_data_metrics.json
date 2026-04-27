@@ -1,8 +1,8 @@
 {
-  "train_identities": 1178,
+  "train_identities": 1176,
   "val_identities": 252,
   "test_identities": 252,
-  "train_images": 6806,
+  "train_images": 6804,
   "val_images": 1284,
-  "misclassified_merged": 2
+  "misclassified_merged": 0
 }
