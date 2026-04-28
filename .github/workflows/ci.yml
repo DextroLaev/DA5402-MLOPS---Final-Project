@@ -57,8 +57,7 @@ jobs:
           # Install CPU-only torch for unit tests (no GPU needed)
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install mlflow==2.11.1 optuna pillow opencv-python-headless
-          pip install mlflow==2.11.1 \
-                numpy==1.26.4 \
+          pip install numpy==1.26.4 \
                 Pillow==10.2.0 \
                 opencv-python-headless==4.9.0.80 \
                 "flask>=3.0" \
@@ -209,6 +208,7 @@ jobs:
             set -euo pipefail
             cd ${{ secrets.DEPLOY_PROJECT_DIR }}
 
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
             echo "=== Pulling latest code ==="
             git pull origin main
 
