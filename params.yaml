@@ -24,7 +24,7 @@ train:
   batch_size: 32
   embedding_dim: 128
   dropout_rate: 0.3
-  warmup_epochs: 6
+  warmup_epochs: 7
 
 inference:
   threshold: 0.8

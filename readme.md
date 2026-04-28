@@ -358,13 +358,16 @@ docker compose build
 ### 7.2 Start the Full Stack
 
 ```bash
-# Start all services in the background
-docker compose up -d
 
 # Make sure to do the following things to deal with permission issues
 sudo chown -R 50000:0 ./data && sudo chmod -R 775 ./data
 sudo chown -R 50000:0 ./checkpoints && sudo chmod -R 775 ./checkpoints
 sudo chown -R 50000:0 ./logs && sudo chmod -R 775 ./logs
+sudo chmod -R 777 data/
+
+# Start all services in the background
+docker compose up -d
+
 
 # Stream logs to watch startup (Ctrl+C to stop watching — services keep running)
 docker compose logs -f --tail=50
