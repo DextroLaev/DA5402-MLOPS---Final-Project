@@ -360,10 +360,14 @@ docker compose build
 ```bash
 
 # Make sure to do the following things to deal with permission issues
+# Its very important that you do these, otherwise, the application may fail to work
 sudo chown -R 50000:0 ./data && sudo chmod -R 775 ./data
 sudo chown -R 50000:0 ./checkpoints && sudo chmod -R 775 ./checkpoints
 sudo chown -R 50000:0 ./logs && sudo chmod -R 775 ./logs
 sudo chmod -R 777 data/
+sudo chown -R $USER:$USER checkpoints/
+sudo chown -R $USER:$USER data/
+sudo chown -R $USER:$USER logs/
 
 # Start all services in the background
 docker compose up -d
@@ -609,6 +613,30 @@ GET  http://localhost:8080/metrics      → Prometheus metrics
 4. Set URL to: `http://prometheus:9090`
 5. Click **Save & Test** — you should see *"Data source is working"*
 
+## 🔔 Alerting
+
+The monitoring stack includes automated alerting via Grafana, designed to proactively notify you when model performance degrades.
+
+An alert is triggered based on the misclassification rate relative to the configured threshold:
+
+- The system continuously tracks the number of user-reported misclassifications.
+- When the misclassification count exceeds 50% of the retraining threshold (defined in params.yaml), Grafana triggers an alert.
+- The alert is delivered via email (SMTP) to the configured recipient.
+
+This mechanism ensures that you are notified before the system reaches the retraining trigger, allowing early intervention, debugging, or manual inspection.
+
+### Why this matters:
+
+- Prevents silent model degradation
+- Enables faster response to real-world failures
+- Complements the automated Airflow retraining pipeline
+
+### Configuration notes:
+
+- Alert rules are defined in Grafana
+- Email delivery depends on SMTP settings in grafana.ini
+- Threshold values are controlled via params.yaml (misclassify_threshold)
+
 ### 10.2 Available Metrics
 
 The Flask API exposes Prometheus metrics at `http://localhost:8080/metrics`:
@@ -800,6 +828,22 @@ docker compose up -d                             # Fresh start
 | **`.env` file** | Plain text file containing environment variables. Docker Compose reads it to configure all services at startup. |
 
 ---
+
+## All Design documents links along with the user manual are given below
+
+[Basic Architecture Desing](DOCS/Final/Architecure_Document.pdf)
+
+[High-Level-Design (HLD)](DOCS/Final/HLD.pdf)
+
+[Low-Level-Design (LLD)](DOCS/Final/LLD.pdf)
+
+[User-manual](DOCS/Final/FaceRecognition_UserManual.pdf)
+
+[Test case and test plan](DOCS/Final/Test_Plan_and_Test_Cases.pdf)
+
+[UI-Manual](DOCS/Final/UI_Manual.pdf)
+
+[Final Report](Report.pdf)
 
 ## 📄 License
 
