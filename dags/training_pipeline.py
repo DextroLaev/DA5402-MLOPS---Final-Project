@@ -38,16 +38,35 @@ def run_prepare_data(**context):
     Validates the dataset, merges misclassified crops, computes baseline stats.
     """
     import subprocess
+    import stat
+ 
+    baseline_path = "/opt/airflow/data/lfw_baseline_stats.json"
+ 
+    # Ensure the file exists and is writable before the script runs.
+    # Creates it if missing, then grants rw-rw-r-- so the airflow user can write.
+    try:
+        with open(baseline_path, "a"):
+            pass
+        os.chmod(baseline_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH)
+        log.info(f"[prepare] Ensured writable: {baseline_path}")
+    except PermissionError:
+        # Directory itself isn't writable — fix it too
+        data_dir = os.path.dirname(baseline_path)
+        os.chmod(data_dir, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH | stat.S_IXOTH)
+        with open(baseline_path, "a"):
+            pass
+        os.chmod(baseline_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH)
+        log.info(f"[prepare] Fixed dir permissions and ensured writable: {baseline_path}")
+ 
     result = subprocess.run(
         ["python", "/opt/airflow/src/prepare_data.py"],
-        capture_output=True, text=True
+        capture_output=True, text=True,
     )
     log.info(result.stdout)
     if result.returncode != 0:
-        log.error(result.stderr,exc_info=True)
+        log.error(result.stderr, exc_info=True)
         raise RuntimeError(f"prepare_data.py failed:\n{result.stderr}")
     log.info("Data preparation complete.")
-
 
 def export_misclassified_data(**context):
     """
@@ -349,6 +368,16 @@ with DAG(
                 -v ${REMOTE_CODE_DIR}:/app \
                 -v ${REMOTE_DATA_DIR}:/app/data \
                 dextrolaev/trainer:latest python src/main.py"
+
+            echo "Pulling checkpoints back from remote..."
+            rsync -avz \
+                -e "ssh $SSH_OPTS" \
+                --include="*.json" \
+                --include="*.txt" \
+                --exclude="*" \
+                "${REMOTE_SSH_USER}@${REMOTE_SSH_HOST}:${REMOTE_CODE_DIR}/checkpoints/" \
+                "/opt/airflow/checkpoints/"
+            echo "Checkpoints synced."
             """,
             env={
                 "REMOTE_SSH_USER":   os.environ.get("REMOTE_SSH_USER", "user"),

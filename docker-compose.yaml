@@ -127,11 +127,23 @@ services:
     networks:
       - mlops-net
 
+  airflow-init-perms:
+    image: alpine
+    user: "0:0"
+    volumes:
+      - ./data:/opt/airflow/data
+      - ./checkpoints:/opt/airflow/checkpoints    # ← ADD THIS
+      - ./logs:/opt/airflow/logs
+    command: ["sh", "-c", "chown -R 50000:0 /opt/airflow/data && chmod -R 775 /opt/airflow/data"]
+
   airflow-init:
     image: apache/airflow:3.1.8
     user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+      airflow-init-perms:
+        condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
