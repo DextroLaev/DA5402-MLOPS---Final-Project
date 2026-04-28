@@ -203,6 +203,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT }}
+          command_timeout: 60m
           # ── What runs on your machine ──────────────────────────────────────
           script: |
             set -euo pipefail
