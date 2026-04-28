@@ -118,13 +118,13 @@ stages:
       md5: 7cd5ac9b31290656600a202a484f3138
       size: 71
   prepare_data:
-    cmd: bash scripts/prepare_data.sh lfw
+    cmd: bash scripts/prepare_data.sh vgg6face
     deps:
-    - path: data/lfw
+    - path: data/vgg6face
       hash: md5
-      md5: f60ed6a5b84d6b382dccef0f9aca6c84.dir
-      size: 44476651
-      nfiles: 9164
+      md5: b78e47f5285f76d3e66dd9455a46d8f6.dir
+      size: 2496073727
+      nfiles: 197693
     - path: src/config.py
       hash: md5
       md5: 6b6dee38743617785b98d4986a33f22b
@@ -134,29 +134,29 @@ stages:
       md5: 8ad31dfcbe9e0f514e3adcbb6024586c
       size: 8552
     outs:
-    - path: data/lfw_baseline_stats.json
+    - path: data/vgg6face_baseline_stats.json
       hash: md5
-      md5: 2bf31a19f4ce4966626908216dc44389
-      size: 1317
-    - path: data/lfw_data_metrics.json
+      md5: cf7fcfba118b7b6228fe69fd0d35b9a1
+      size: 1319
+    - path: data/vgg6face_data_metrics.json
       hash: md5
-      md5: e72b25704f010fdd95f8ebf77fa41c62
+      md5: f958e68d0196f11ae0776561d9db1333
       size: 156
-    - path: data/lfw_manifest.json
+    - path: data/vgg6face_manifest.json
       hash: md5
-      md5: a8e2131a713767707a14754b8d30dbc7
-      size: 257
+      md5: c326af83c5232e4915e3d9f5c2da995e
+      size: 263
   train:
-    cmd: bash scripts/train.sh lfw
+    cmd: bash scripts/train.sh vgg6face
     deps:
-    - path: data/lfw_data_metrics.json
+    - path: data/vgg6face_data_metrics.json
       hash: md5
-      md5: e72b25704f010fdd95f8ebf77fa41c62
+      md5: f958e68d0196f11ae0776561d9db1333
       size: 156
-    - path: data/lfw_manifest.json
+    - path: data/vgg6face_manifest.json
       hash: md5
-      md5: a8e2131a713767707a14754b8d30dbc7
-      size: 257
+      md5: c326af83c5232e4915e3d9f5c2da995e
+      size: 263
     - path: scripts/train.sh
       hash: md5
       md5: d60a3ebbac20c254b7644b2f894b28ac
@@ -180,8 +180,8 @@ stages:
       size: 8082
     - path: src/train.py
       hash: md5
-      md5: d688b696899547c1f42cbc5bdef58c47
-      size: 9346
+      md5: 038610ab9fda9ce5156e443e6b05cae0
+      size: 9202
     - path: src/utils.py
       hash: md5
       md5: b484a5cf1c4e2a11e5c21ff6e9f1dc8e
@@ -190,38 +190,38 @@ stages:
       params.yaml:
         train:
           n_trials: 1
-          n_epochs_per_trial: 30
-          lr_min: 1e-05
-          lr_max: 1e-05
-          margin_min: 0.5
-          margin_max: 0.5
+          n_epochs_per_trial: 100
+          lr_min: 0.0003
+          lr_max: 0.0003
+          margin_min: 0.95
+          margin_max: 0.95
           mining_choices: semi
           batch_size: 32
           embedding_dim: 128
           dropout_rate: 0.3
-          warmup_epochs: 6
+          warmup_epochs: 58
     outs:
-    - path: checkpoints/lfw_best_run.json
+    - path: checkpoints/vgg6face_best_run.json
       hash: md5
-      md5: 6dc1035da86e81e0bf33893e9e7e9039
-      size: 225
-    - path: checkpoints/lfw_dvc_metrics.json
+      md5: 7f4e6a6f38df53c82637f6d65822d70b
+      size: 227
+    - path: checkpoints/vgg6face_dvc_metrics.json
       hash: md5
-      md5: dc9ce50b72809179510b6a2a196f4571
-      size: 322
+      md5: 2adf72d6779bf6da27ba85540ab54988
+      size: 340
   register:
-    cmd: bash scripts/register.sh lfw
+    cmd: bash scripts/register.sh vgg6face
     deps:
-    - path: checkpoints/lfw_best_run.json
+    - path: checkpoints/vgg6face_best_run.json
       hash: md5
-      md5: 6dc1035da86e81e0bf33893e9e7e9039
-      size: 225
+      md5: 7f4e6a6f38df53c82637f6d65822d70b
+      size: 227
     - path: src/register_model.py
       hash: md5
       md5: de7feee35d0fedca89a4bf39ce8cc3db
       size: 1423
     outs:
-    - path: checkpoints/lfw_registered_version.txt
+    - path: checkpoints/vgg6face_registered_version.txt
       hash: md5
-      md5: 08c61f3fd48f12fa7c88a7f5fd01df3d
+      md5: c92841e00dbfeb12a0ce7fb3ffbd1fcb
       size: 3
